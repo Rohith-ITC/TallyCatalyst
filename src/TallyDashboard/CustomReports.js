@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { hybridCache } from '../utils/hybridCache';
-import { getNestedFieldValue, extractAllFieldsFromCache, getNestedFieldValues, HIERARCHY_MAP } from './salesdashboard/utils/fieldExtractor';
+import { getNestedFieldValue, extractAllFieldsFromCache, getNestedFieldValues, HIERARCHY_MAP, getHierarchyLevel } from './salesdashboard/utils/fieldExtractor';
 import { loadUdfConfig, getAvailableUdfFields } from '../utils/udfConfigLoader';
 import * as XLSX from 'xlsx';
 
@@ -102,6 +102,69 @@ const CustomReports = () => {
             }
           });
           window.__voucherLookupMap = voucherLookupMap;
+
+          // Load customer/ledger data and create lookup map
+          try {
+            const customers = await hybridCache.getCustomerData(currentCompanyObj);
+            if (customers && Array.isArray(customers)) {
+              const customerLookupMap = new Map();
+              customers.forEach(customer => {
+                const name = customer.NAME || customer.name;
+                const guid = customer.GUID || customer.guid;
+                if (name) {
+                  customerLookupMap.set(String(name).toLowerCase(), customer);
+                }
+                if (guid) {
+                  customerLookupMap.set(String(guid), customer);
+                }
+                // Also index by partyledgernameid if available
+                const id = customer.MASTERID || customer.masterid || customer.PARTYLEDGERNAMEID || customer.partyledgernameid;
+                if (id) {
+                  customerLookupMap.set(String(id), customer);
+                }
+              });
+              window.__customerLookupMap = customerLookupMap;
+              console.log(`✅ Loaded ${customers.length} customers into lookup map (parent component)`);
+            } else {
+              window.__customerLookupMap = new Map();
+            }
+          } catch (customerError) {
+            console.error('Error loading customer data:', customerError);
+            window.__customerLookupMap = new Map();
+          }
+
+          // Load stock items data and create lookup map
+          try {
+            const { tallyloc_id, company } = currentCompanyObj;
+            const stockItemsCacheKey = `stockitems_${tallyloc_id}_${company}`;
+            const stockItemsCache = await hybridCache.getSalesData(stockItemsCacheKey);
+            if (stockItemsCache && stockItemsCache.stockItems && Array.isArray(stockItemsCache.stockItems)) {
+              const stockItems = stockItemsCache.stockItems;
+              const stockItemLookupMap = new Map();
+              stockItems.forEach(item => {
+                const name = item.NAME || item.name;
+                const guid = item.GUID || item.guid;
+                if (name) {
+                  stockItemLookupMap.set(String(name).toLowerCase(), item);
+                }
+                if (guid) {
+                  stockItemLookupMap.set(String(guid), item);
+                }
+                // Also index by stockitemnameid if available
+                const id = item.MASTERID || item.masterid || item.STOCKITEMNAMEID || item.stockitemnameid;
+                if (id) {
+                  stockItemLookupMap.set(String(id), item);
+                }
+              });
+              window.__stockItemLookupMap = stockItemLookupMap;
+              console.log(`✅ Loaded ${stockItems.length} stock items into lookup map (parent component)`);
+            } else {
+              window.__stockItemLookupMap = new Map();
+            }
+          } catch (stockItemError) {
+            console.error('Error loading stock items data:', stockItemError);
+            window.__stockItemLookupMap = new Map();
+          }
           
           // Filter to only sales vouchers (same as SalesDashboard)
           const salesVouchers = completeCache.data.vouchers.filter(voucher => {
@@ -225,10 +288,17 @@ const CustomReports = () => {
           });
           
           setSalesData(flattened);
+        } else {
+          // No vouchers data, but still initialize empty lookup maps
+          window.__customerLookupMap = new Map();
+          window.__stockItemLookupMap = new Map();
         }
       } catch (error) {
         console.error('Error loading sales data:', error);
         setSalesData([]);
+        // Initialize empty lookup maps on error
+        window.__customerLookupMap = new Map();
+        window.__stockItemLookupMap = new Map();
       }
     };
     
@@ -239,7 +309,199 @@ const CustomReports = () => {
   const getFieldValue = (item, fieldName) => {
     if (!item || !fieldName) return null;
     
-    // Handle nested field paths
+    // Handle fields from customer table (customers.field or customers.address.field)
+    if (fieldName.startsWith('customers.')) {
+      const customerLookupMap = window.__customerLookupMap;
+      if (!customerLookupMap || customerLookupMap.size === 0) {
+        console.warn('⚠️ Customer lookup map not available or empty for field:', fieldName);
+        return null;
+      }
+      
+      // Get configured relationship for customers table
+      const relationship = (window.__reportRelationships || []).find(r => r.toTable === 'customers');
+      const fromField = relationship?.fromField || 'partyledgernameid'; // Default fallback
+      const toField = relationship?.toField || 'MASTERID'; // Default fallback - vouchers → ledger: partyledgernameid → masterid
+      
+      // Get customer identifier from item using configured relationship field
+      // Support both original items and row objects
+      let customerIdentifier = null;
+      
+      // Try configured fromField first
+      customerIdentifier = item[fromField] || item.__originalItem?.[fromField];
+      
+      // Fallback to common fields if configured field not found
+      if (!customerIdentifier) {
+        if (fromField.includes('name') || fromField.includes('Name')) {
+          // Name-based identifiers (voucher-level party, etc.)
+          customerIdentifier = item.__partyledgername || item.partyledgername || item.customer || item.partyname || item.party;
+          const originalItem = item.__originalItem;
+          if (!customerIdentifier && originalItem) {
+            customerIdentifier = originalItem.partyledgername || originalItem.customer || originalItem.partyname || originalItem.party;
+          }
+        } else if (fromField.includes('id') || fromField.includes('Id') || fromField.includes('ID')) {
+          // ID-based identifiers
+          // Priority order based on mapping:
+          // 1) vouchers.partyledgernameid (party/ledger id)
+          // 2) ledgerentries.ledgernameid (ledgerentries → ledger: ledgernameid → masterid)
+          // 3) accountingallocation.ledgernameid (accountingallocation → ledger: ledgernameid → masterid)
+          customerIdentifier = item.__partyid || item.partyledgernameid || item.partyid;
+          
+          // Also check for flattened ledgerentries/accountingallocation identifiers on the row
+          if (!customerIdentifier) {
+            customerIdentifier = item.ledgernameid;
+          }
+          
+          const originalItem = item.__originalItem;
+          if (!customerIdentifier && originalItem) {
+            customerIdentifier = originalItem.partyledgernameid || originalItem.partyid || originalItem.ledgernameid;
+          }
+        }
+      }
+      
+      if (!customerIdentifier) {
+        console.debug('⚠️ Customer identifier not found using field:', fromField);
+        return null;
+      }
+      
+      // Lookup customer using configured relationship
+      let customer = null;
+      const identifierStr = String(customerIdentifier);
+      
+      // Try exact match first
+      customer = customerLookupMap.get(identifierStr) || 
+                 customerLookupMap.get(identifierStr.toLowerCase());
+      
+      // Try matching by configured toField
+      if (!customer) {
+        for (const [key, value] of customerLookupMap.entries()) {
+          const toFieldValue = value?.[toField] || value?.[toField.toLowerCase()] || value?.[toField.toUpperCase()];
+          if (toFieldValue && String(toFieldValue) === identifierStr) {
+            customer = value;
+            break;
+          }
+        }
+      }
+      
+      // Fallback to name-based matching if configured field is name-based
+      if (!customer && (fromField.includes('name') || fromField.includes('Name'))) {
+        const nameLower = identifierStr.toLowerCase();
+        for (const [key, value] of customerLookupMap.entries()) {
+          if (key.toLowerCase() === nameLower || String(value?.NAME || value?.name || '').toLowerCase() === nameLower) {
+            customer = value;
+            break;
+          }
+        }
+      }
+      
+      if (!customer) {
+        console.debug('⚠️ Customer not found in lookup map:', { 
+          identifier: customerIdentifier, 
+          fromField, 
+          toField, 
+          fieldName 
+        });
+        return null;
+      }
+      
+      // Extract the field path after "customers."
+      const fieldPath = fieldName.substring('customers.'.length);
+      if (fieldPath.includes('.')) {
+        // Nested field like customers.address.street
+        return getNestedFieldValue(customer, fieldPath);
+      } else {
+        // Direct field like customers.name
+        return customer[fieldPath] || customer[fieldPath.toUpperCase()] || customer[fieldPath.toLowerCase()] || null;
+      }
+    }
+    
+    // Handle fields from stock items table (stockitems.field)
+    if (fieldName.startsWith('stockitems.')) {
+      const stockItemLookupMap = window.__stockItemLookupMap;
+      if (!stockItemLookupMap || stockItemLookupMap.size === 0) {
+        console.warn('⚠️ Stock item lookup map not available or empty for field:', fieldName);
+        return null;
+      }
+      
+      // Get configured relationship for stockitems table
+      const relationship = (window.__reportRelationships || []).find(r => r.toTable === 'stockitems');
+      const fromField = relationship?.fromField || 'stockitemnameid'; // Default fallback
+      const toField = relationship?.toField || 'MASTERID'; // Default fallback - allinventoryentries → stockitem: stockitemnameid → masterid
+      
+      // Get stock item identifier from item using configured relationship field
+      // Support both original items and row objects
+      let itemIdentifier = null;
+      
+      // Try configured fromField first
+      itemIdentifier = item[fromField] || item.__originalItem?.[fromField];
+      
+      // Fallback to common fields if configured field not found
+      if (!itemIdentifier) {
+        if (fromField.includes('name') || fromField.includes('Name')) {
+          itemIdentifier = item.__stockitemname || item.stockitemname || item.item;
+          const originalItem = item.__originalItem;
+          if (!itemIdentifier && originalItem) {
+            itemIdentifier = originalItem.stockitemname || originalItem.item;
+          }
+        } else if (fromField.includes('id') || fromField.includes('Id') || fromField.includes('ID')) {
+          itemIdentifier = item.__itemid || item.stockitemnameid || item.itemid;
+          const originalItem = item.__originalItem;
+          if (!itemIdentifier && originalItem) {
+            itemIdentifier = originalItem.stockitemnameid || originalItem.itemid;
+          }
+        }
+      }
+      
+      if (!itemIdentifier) {
+        console.debug('⚠️ Stock item identifier not found using field:', fromField);
+        return null;
+      }
+      
+      // Lookup stock item using configured relationship
+      let stockItem = null;
+      const identifierStr = String(itemIdentifier);
+      
+      // Try exact match first
+      stockItem = stockItemLookupMap.get(identifierStr) || 
+                  stockItemLookupMap.get(identifierStr.toLowerCase());
+      
+      // Try matching by configured toField
+      if (!stockItem) {
+        for (const [key, value] of stockItemLookupMap.entries()) {
+          const toFieldValue = value?.[toField] || value?.[toField.toLowerCase()] || value?.[toField.toUpperCase()];
+          if (toFieldValue && String(toFieldValue) === identifierStr) {
+            stockItem = value;
+            break;
+          }
+        }
+      }
+      
+      // Fallback to name-based matching if configured field is name-based
+      if (!stockItem && (fromField.includes('name') || fromField.includes('Name'))) {
+        const nameLower = identifierStr.toLowerCase();
+        for (const [key, value] of stockItemLookupMap.entries()) {
+          if (key.toLowerCase() === nameLower || String(value?.NAME || value?.name || '').toLowerCase() === nameLower) {
+            stockItem = value;
+            break;
+          }
+        }
+      }
+      
+      if (!stockItem) {
+        console.debug('⚠️ Stock item not found in lookup map:', { 
+          identifier: itemIdentifier, 
+          fromField, 
+          toField, 
+          fieldName 
+        });
+        return null;
+      }
+      
+      // Extract the field path after "stockitems."
+      const fieldPath = fieldName.substring('stockitems.'.length);
+      return stockItem[fieldPath] || stockItem[fieldPath.toUpperCase()] || stockItem[fieldPath.toLowerCase()] || null;
+    }
+    
+    // Handle nested field paths (existing logic)
     if (fieldName.includes('.')) {
       // If we have expanded array entry and field belongs to that array, get from array entry
       if (item.__arrayEntry && item.__arrayFieldName) {
@@ -695,6 +957,35 @@ const CustomReports = () => {
   const handleOpenReport = (report) => {
     setSelectedReport(report);
     
+    // Store relationship configuration for use in getFieldValue
+    if (report.relationships && Array.isArray(report.relationships)) {
+      window.__reportRelationships = report.relationships;
+    } else {
+      // Use default relationships if not configured
+      window.__reportRelationships = [];
+      // Auto-detect default relationships based on selected fields
+      const hasCustomerFields = report.fields.some(f => f.startsWith('customers.'));
+      const hasStockItemFields = report.fields.some(f => f.startsWith('stockitems.'));
+      if (hasCustomerFields) {
+        window.__reportRelationships.push({
+          fromTable: 'vouchers',
+          fromField: 'partyledgernameid',
+          toTable: 'customers',
+          toField: 'MASTERID', // vouchers → ledger: partyledgernameid → masterid
+          joinType: 'left'
+        });
+      }
+      if (hasStockItemFields) {
+        window.__reportRelationships.push({
+          fromTable: 'vouchers',
+          fromField: 'stockitemnameid',
+          toTable: 'stockitems',
+          toField: 'MASTERID', // allinventoryentries → stockitem: stockitemnameid → masterid
+          joinType: 'left'
+        });
+      }
+    }
+    
     // Restore pivot table state if saved
     if (report.pivotConfig) {
       setPivotConfig(report.pivotConfig);
@@ -841,8 +1132,12 @@ const CustomReports = () => {
     const rows = filteredData.map(item => {
       const row = {};
       report.fields.forEach(fieldValue => {
+        // Skip array entry logic for customer/stockitems table fields - they need lookup
+        if (fieldValue.startsWith('customers.') || fieldValue.startsWith('stockitems.')) {
+          row[fieldValue] = getFieldValue(item, fieldValue);
+        }
         // If field is nested array field and we have expanded array entry, get from array entry
-        if (fieldValue.includes('.') && item.__arrayEntry) {
+        else if (fieldValue.includes('.') && item.__arrayEntry) {
           const pathParts = fieldValue.split('.');
           const fieldArrayName = pathParts[0].toLowerCase();
           
@@ -869,6 +1164,16 @@ const CustomReports = () => {
           row[fieldValue] = getFieldValue(item, fieldValue);
         }
       });
+      
+      // Preserve identifiers needed for customer/stockitem lookups in pivot tables
+      // Store them in a way that getFieldValue can access them
+      row.__partyledgername = item.partyledgername || item.customer || item.partyname || item.party;
+      row.__partyid = item.partyledgernameid || item.partyid;
+      row.__stockitemname = item.stockitemname || item.item;
+      row.__itemid = item.stockitemnameid || item.itemid;
+      row.__masterid = item.masterid || item.mstid;
+      row.__originalItem = item; // Preserve full item for complex lookups
+      
       return row;
     });
     
@@ -2551,7 +2856,8 @@ const HierarchicalFieldList = ({ fields, selectedFields, onFieldToggle, searchTe
   };
   
   const hierarchyOrder = ['voucher', 'ledgerentries', 'billallocations', 
-                         'allinventoryentries', 'batchallocation', 'accountingallocation', 'address', 'udf'];
+                         'allinventoryentries', 'batchallocation', 'accountingallocation', 'address',
+                         'customers', 'stockitems', 'udf'];
   const sortedGroups = Object.values(groupedFields).sort((a, b) => {
     const aOrder = hierarchyOrder.indexOf(a.level) >= 0 ? hierarchyOrder.indexOf(a.level) : 999;
     const bOrder = hierarchyOrder.indexOf(b.level) >= 0 ? hierarchyOrder.indexOf(b.level) : 999;
@@ -2578,6 +2884,51 @@ const HierarchicalFieldList = ({ fields, selectedFields, onFieldToggle, searchTe
       {sortedGroups.map((group) => {
         const isExpanded = expandedGroups.has(group.level);
         const isUdf = group.level === 'udf';
+        const isCustomers = group.level === 'customers';
+        const isStockItems = group.level === 'stockitems';
+        
+        // Color scheme based on hierarchy type
+        const getGroupColors = () => {
+          if (isUdf) {
+            return {
+              background: '#fef3c7',
+              backgroundHover: '#fde68a',
+              border: '#fbbf24',
+              text: '#92400e',
+              icon: '#d97706',
+              badge: { bg: '#fde68a', text: '#a16207' }
+            };
+          } else if (isCustomers) {
+            return {
+              background: '#dbeafe',
+              backgroundHover: '#bfdbfe',
+              border: '#3b82f6',
+              text: '#1e40af',
+              icon: '#2563eb',
+              badge: { bg: '#bfdbfe', text: '#1e40af' }
+            };
+          } else if (isStockItems) {
+            return {
+              background: '#dcfce7',
+              backgroundHover: '#bbf7d0',
+              border: '#22c55e',
+              text: '#166534',
+              icon: '#16a34a',
+              badge: { bg: '#bbf7d0', text: '#166534' }
+            };
+          } else {
+            return {
+              background: '#f8fafc',
+              backgroundHover: '#f1f5f9',
+              border: '#e2e8f0',
+              text: '#1e293b',
+              icon: '#64748b',
+              badge: { bg: '#e2e8f0', text: '#64748b' }
+            };
+          }
+        };
+        
+        const colors = getGroupColors();
         
         return (
           <div key={group.level} style={{ marginBottom: '8px' }}>
@@ -2587,23 +2938,23 @@ const HierarchicalFieldList = ({ fields, selectedFields, onFieldToggle, searchTe
                 display: 'flex',
                 alignItems: 'center',
                 padding: '10px 12px',
-                background: isUdf ? '#fef3c7' : '#f8fafc',
-                border: `1px solid ${isUdf ? '#fbbf24' : '#e2e8f0'}`,
+                background: colors.background,
+                border: `1px solid ${colors.border}`,
                 borderRadius: '6px',
                 cursor: 'pointer',
                 transition: 'all 0.15s ease',
                 marginBottom: isExpanded ? '8px' : '0'
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.background = isUdf ? '#fde68a' : '#f1f5f9';
+                e.currentTarget.style.background = colors.backgroundHover;
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.background = isUdf ? '#fef3c7' : '#f8fafc';
+                e.currentTarget.style.background = colors.background;
               }}
             >
               <span className="material-icons" style={{
                 fontSize: '18px',
-                color: isUdf ? '#d97706' : '#64748b',
+                color: colors.icon,
                 marginRight: '8px',
                 transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
                 transition: 'transform 0.2s'
@@ -2613,15 +2964,15 @@ const HierarchicalFieldList = ({ fields, selectedFields, onFieldToggle, searchTe
               <span style={{
                 fontSize: '14px',
                 fontWeight: 600,
-                color: isUdf ? '#92400e' : '#1e293b',
+                color: colors.text,
                 flex: 1
               }}>
                 {group.name}
               </span>
               <span style={{
                 fontSize: '12px',
-                color: isUdf ? '#a16207' : '#64748b',
-                background: isUdf ? '#fde68a' : '#e2e8f0',
+                color: colors.badge.text,
+                background: colors.badge.bg,
                 padding: '2px 8px',
                 borderRadius: '12px',
                 fontWeight: 500
@@ -2769,8 +3120,129 @@ const CustomReportModal = ({ salesData, onClose }) => {
   const [filterFieldSearchTerm, setFilterFieldSearchTerm] = useState('');
   const [rawVoucherData, setRawVoucherData] = useState([]);
   const [udfFields, setUdfFields] = useState([]);
+  const [customerData, setCustomerData] = useState([]);
+  const [stockItemData, setStockItemData] = useState([]);
+  const [relationships, setRelationships] = useState([]);
+  const [showRelationships, setShowRelationships] = useState(false);
 
-  // Load raw voucher data and UDF fields
+  // Cleanup relationships on unmount
+  useEffect(() => {
+    return () => {
+      window.__reportRelationships = undefined;
+    };
+  }, []);
+
+  // Detect which tables are involved based on selected fields
+  const involvedTables = useMemo(() => {
+    const tables = new Set(['vouchers']); // Vouchers is always the base table
+    const nestedArrayToTable = {
+      'ledgerentries': 'customers',        // ledgerentries → ledger (customers)
+      'accountingallocation': 'customers', // accountingallocation → ledger (customers)
+      'allinventoryentries': 'stockitems', // allinventoryentries → stockitem
+      'inventoryentries': 'stockitems'     // inventoryentries → stockitem
+    };
+    
+    selectedFields.forEach(field => {
+      if (field.startsWith('customers.')) {
+        tables.add('customers');
+      } else if (field.startsWith('stockitems.')) {
+        tables.add('stockitems');
+      } else if (field.includes('.')) {
+        // Check for nested array fields that need relationships
+        const fieldParts = field.split('.');
+        const arrayName = fieldParts[0].toLowerCase();
+        if (nestedArrayToTable[arrayName]) {
+          tables.add(nestedArrayToTable[arrayName]);
+        }
+      }
+    });
+    return Array.from(tables);
+  }, [selectedFields]);
+
+  // Detect which nested arrays are involved (for relationship configuration)
+  const involvedNestedArrays = useMemo(() => {
+    const arrays = new Set();
+    selectedFields.forEach(field => {
+      if (field.includes('.')) {
+        const fieldParts = field.split('.');
+        const arrayName = fieldParts[0].toLowerCase();
+        // Check if this is a nested array (not customers/stockitems which are separate tables)
+        if (!field.startsWith('customers.') && !field.startsWith('stockitems.')) {
+          const knownArrays = ['ledgerentries', 'accountingallocation', 'allinventoryentries', 'inventoryentries'];
+          if (knownArrays.includes(arrayName)) {
+            arrays.add(arrayName);
+          }
+        }
+      }
+    });
+    return Array.from(arrays);
+  }, [selectedFields]);
+
+
+  // Helper function to intelligently find matching fields between two tables
+  const findMatchingFields = useCallback((fromFields, toFields) => {
+    if (!fromFields || !toFields || fromFields.length === 0 || toFields.length === 0) {
+      return { fromField: null, toField: null };
+    }
+
+    // Convert field arrays to lowercase for comparison
+    const fromFieldsLower = fromFields.map(f => ({
+      original: f.value || f,
+      lower: (f.value || f).toLowerCase()
+    }));
+    const toFieldsLower = toFields.map(f => ({
+      original: f.value || f,
+      lower: (f.value || f).toLowerCase()
+    }));
+
+    // Step 1: Look for ID fields (masterid, master_id, id, guid) - highest priority
+    const idPatterns = ['masterid', 'master_id', 'guid', 'id'];
+    for (const pattern of idPatterns) {
+      const fromMatch = fromFieldsLower.find(f => f.lower.includes(pattern));
+      const toMatch = toFieldsLower.find(f => f.lower.includes(pattern));
+      
+      if (fromMatch && toMatch) {
+        return {
+          fromField: fromMatch.original,
+          toField: toMatch.original
+        };
+      }
+    }
+
+    // Step 2: Look for exact name matches (case-insensitive)
+    for (const fromField of fromFieldsLower) {
+      const toMatch = toFieldsLower.find(f => f.lower === fromField.lower);
+      if (toMatch) {
+        return {
+          fromField: fromField.original,
+          toField: toMatch.original
+        };
+      }
+    }
+
+    // Step 3: Look for partial matches (e.g., "partyledgernameid" matches "PARTYLEDGERNAMEID")
+    for (const fromField of fromFieldsLower) {
+      const normalizedFrom = fromField.lower.replace(/[_\s]/g, '');
+      const toMatch = toFieldsLower.find(f => {
+        const normalizedTo = f.lower.replace(/[_\s]/g, '');
+        return normalizedFrom === normalizedTo;
+      });
+      if (toMatch) {
+        return {
+          fromField: fromField.original,
+          toField: toMatch.original
+        };
+      }
+    }
+
+    // Step 4: If no match found, return first available fields
+    return {
+      fromField: fromFieldsLower[0]?.original || null,
+      toField: toFieldsLower[0]?.original || null
+    };
+  }, []);
+
+  // Load raw voucher data, customers, stock items, and UDF fields
   useEffect(() => {
     const loadData = async () => {
       try {
@@ -2786,6 +3258,8 @@ const CustomReportModal = ({ salesData, onClose }) => {
         if (!currentCompanyObj || !currentCompanyObj.tallyloc_id || !currentCompanyObj.guid) {
           setRawVoucherData([]);
           setUdfFields([]);
+          setCustomerData([]);
+          setStockItemData([]);
           return;
         }
         
@@ -2807,6 +3281,77 @@ const CustomReportModal = ({ salesData, onClose }) => {
           window.__voucherLookupMap = new Map();
         }
 
+        // Load customer/ledger data
+        try {
+          const customers = await hybridCache.getCustomerData(currentCompanyObj);
+          if (customers && Array.isArray(customers)) {
+            setCustomerData(customers);
+            // Create customer lookup map by NAME or GUID
+            const customerLookupMap = new Map();
+            customers.forEach(customer => {
+              const name = customer.NAME || customer.name;
+              const guid = customer.GUID || customer.guid;
+              if (name) {
+                customerLookupMap.set(String(name).toLowerCase(), customer);
+              }
+              if (guid) {
+                customerLookupMap.set(String(guid), customer);
+              }
+              // Also index by partyledgernameid if available
+              const id = customer.MASTERID || customer.masterid || customer.PARTYLEDGERNAMEID || customer.partyledgernameid;
+              if (id) {
+                customerLookupMap.set(String(id), customer);
+              }
+            });
+            window.__customerLookupMap = customerLookupMap;
+            console.log(`✅ Loaded ${customers.length} customers into lookup map`);
+          } else {
+            setCustomerData([]);
+            window.__customerLookupMap = new Map();
+          }
+        } catch (customerError) {
+          console.error('Error loading customer data:', customerError);
+          setCustomerData([]);
+          window.__customerLookupMap = new Map();
+        }
+
+        // Load stock items data
+        try {
+          const { tallyloc_id, company } = currentCompanyObj;
+          const stockItemsCacheKey = `stockitems_${tallyloc_id}_${company}`;
+          const stockItemsCache = await hybridCache.getSalesData(stockItemsCacheKey);
+          if (stockItemsCache && stockItemsCache.stockItems && Array.isArray(stockItemsCache.stockItems)) {
+            const stockItems = stockItemsCache.stockItems;
+            setStockItemData(stockItems);
+            // Create stock item lookup map
+            const stockItemLookupMap = new Map();
+            stockItems.forEach(item => {
+              const name = item.NAME || item.name;
+              const guid = item.GUID || item.guid;
+              if (name) {
+                stockItemLookupMap.set(String(name).toLowerCase(), item);
+              }
+              if (guid) {
+                stockItemLookupMap.set(String(guid), item);
+              }
+              // Also index by stockitemnameid if available
+              const id = item.MASTERID || item.masterid || item.STOCKITEMNAMEID || item.stockitemnameid;
+              if (id) {
+                stockItemLookupMap.set(String(id), item);
+              }
+            });
+            window.__stockItemLookupMap = stockItemLookupMap;
+            console.log(`✅ Loaded ${stockItems.length} stock items into lookup map`);
+          } else {
+            setStockItemData([]);
+            window.__stockItemLookupMap = new Map();
+          }
+        } catch (stockItemError) {
+          console.error('Error loading stock items data:', stockItemError);
+          setStockItemData([]);
+          window.__stockItemLookupMap = new Map();
+        }
+
         // Load UDF fields
         try {
           const udfConfig = await loadUdfConfig(currentCompanyObj.tallyloc_id, currentCompanyObj.guid);
@@ -2826,36 +3371,17 @@ const CustomReportModal = ({ salesData, onClose }) => {
         console.error('Error loading data:', error);
         setRawVoucherData([]);
         setUdfFields([]);
+        setCustomerData([]);
+        setStockItemData([]);
       }
     };
     
     loadData();
   }, [salesData]);
 
-  // Extract all available fields
+  // Extract all available fields from all cache tables
   const allFields = useMemo(() => {
-    const dataForExtraction = rawVoucherData.length > 0 ? rawVoucherData : salesData;
-    
-    if (!dataForExtraction || !Array.isArray(dataForExtraction) || dataForExtraction.length === 0) {
-      return udfFields;
-    }
-
-    const extracted = extractAllFieldsFromCache(dataForExtraction);
-    const cacheFields = extracted.fields || [];
-    
-    const allKeysSet = new Set();
-    if (rawVoucherData && rawVoucherData.length > 0) {
-      rawVoucherData.forEach(voucher => {
-        Object.keys(voucher).forEach(key => allKeysSet.add(key));
-      });
-    }
-    if (salesData && Array.isArray(salesData)) {
-      salesData.forEach(sale => {
-        Object.keys(sale).forEach(key => allKeysSet.add(key));
-      });
-    }
-    
-    const allKeys = Array.from(allKeysSet);
+    const fieldsMap = new Map();
     const fieldLabelMap = {
       'partyledgername': 'Party Ledger Name',
       'customer': 'Customer',
@@ -2877,81 +3403,273 @@ const CustomReportModal = ({ salesData, onClose }) => {
       'vchno': 'Voucher Number',
     };
 
-    const getFieldLabel = (fieldName) => {
+    const getFieldLabel = (fieldName, prefix = '') => {
       const lowerKey = fieldName.toLowerCase();
-      if (fieldLabelMap[lowerKey]) {
-        return fieldLabelMap[lowerKey];
-      }
-      return fieldName.charAt(0).toUpperCase() + fieldName.slice(1).replace(/([A-Z])/g, ' $1').trim();
+      const baseLabel = fieldLabelMap[lowerKey] || fieldName.charAt(0).toUpperCase() + fieldName.slice(1).replace(/([A-Z])/g, ' $1').trim();
+      return prefix ? `${prefix} → ${baseLabel}` : baseLabel;
     };
 
-    const fieldsMap = new Map();
-    const dateFieldVariations = ['cp_date', 'cpdate', 'date', 'transaction_date', 'transactiondate', 
-                                  'voucher_date', 'voucherdate', 'bill_date', 'billdate'];
-    const foundDateFields = [];
-    
-    allKeys.forEach(key => {
-      const lowerKey = key.toLowerCase();
-      const isDateField = dateFieldVariations.some(dv => lowerKey === dv) || 
-                          (lowerKey === 'date' || lowerKey === 'cp_date' || 
-                           (lowerKey.endsWith('_date') && !lowerKey.includes('updated') && 
-                            !lowerKey.includes('created') && !lowerKey.includes('modified')));
-      if (isDateField) {
-        foundDateFields.push({ original: key, lower: lowerKey });
+    const determineFieldType = (value) => {
+      if (value === null || value === undefined || value === '') {
+        return 'category';
       }
-    });
-    
-    if (foundDateFields.length > 0) {
-      fieldsMap.set('date', {
-        value: 'date',
-        label: 'Date',
-        type: 'category',
-        hierarchy: 'voucher'
-      });
-    }
-    
-    cacheFields.forEach(field => {
-      const lowerKey = field.value.toLowerCase();
-      if (lowerKey === 'date' && fieldsMap.has('date')) {
-        return;
+      if (typeof value === 'number') {
+        return 'value';
       }
-      const isDateField = dateFieldVariations.some(dv => lowerKey === dv) || 
-                          (lowerKey === 'date' || lowerKey === 'cp_date');
-      if (isDateField && fieldsMap.has('date')) {
-        return;
+      if (typeof value === 'string') {
+        const numValue = parseFloat(value);
+        if (!isNaN(numValue) && isFinite(numValue)) {
+          return 'value';
+        }
       }
-      fieldsMap.set(lowerKey, field);
-    });
+      return 'category';
+    };
 
-    if (salesData && Array.isArray(salesData)) {
-      allKeys.forEach(key => {
-        const lowerKey = key.toLowerCase();
-        if (fieldsMap.has(lowerKey)) {
-          return;
-        }
-        const isDateField = dateFieldVariations.some(dv => lowerKey === dv) || 
-                            (lowerKey === 'date' || lowerKey === 'cp_date');
-        if (isDateField && fieldsMap.has('date')) {
-          return;
-        }
-        let fieldType = 'category';
-        const dataForTypeCheck = rawVoucherData.length > 0 ? rawVoucherData : (salesData || []);
-        const sampleRecord = dataForTypeCheck.find(s => s && s[key] !== null && s[key] !== undefined);
-        if (sampleRecord) {
-          const value = sampleRecord[key];
-          if (typeof value === 'number' || (!isNaN(parseFloat(value)) && isFinite(parseFloat(value)))) {
-            fieldType = 'value';
+    // Extract fields from vouchers/sales data
+    // Use rawVoucherData (nested structure) if available, otherwise use salesData (flattened)
+    const dataForExtraction = rawVoucherData.length > 0 ? rawVoucherData : salesData;
+    if (dataForExtraction && Array.isArray(dataForExtraction) && dataForExtraction.length > 0) {
+      // Extract hierarchical fields from nested structure (rawVoucherData)
+      // This processes all nested arrays: allinventoryentries, ledgerentries, billallocations, etc.
+      const extracted = extractAllFieldsFromCache(dataForExtraction);
+      const cacheFields = extracted.fields || [];
+      
+      // Get ALL unique keys from ALL records to ensure we capture every field
+      // Use rawVoucherData (full period data) if available, otherwise fall back to salesData (current period)
+      const allKeysSet = new Set();
+      
+      // First, extract keys from rawVoucherData (all periods) if available
+      if (rawVoucherData && rawVoucherData.length > 0) {
+        rawVoucherData.forEach(voucher => {
+          Object.keys(voucher).forEach(key => allKeysSet.add(key));
+        });
+      }
+      
+      // Also extract keys from salesData (current period) to ensure we have all fields
+      // This acts as a fallback and also ensures we capture any fields that might be in the flattened format
+      if (salesData && Array.isArray(salesData)) {
+        salesData.forEach(sale => {
+          Object.keys(sale).forEach(key => allKeysSet.add(key));
+        });
+      }
+      
+      const allKeys = Array.from(allKeysSet);
+      
+      // Determine field types by checking all records
+      // Use rawVoucherData (full period) if available, otherwise use salesData
+      const fieldTypes = {};
+      const dataForTypeCheck = rawVoucherData.length > 0 ? rawVoucherData : salesData;
+      
+      dataForTypeCheck.forEach(record => {
+        allKeys.forEach(key => {
+          if (!fieldTypes[key]) {
+            const value = record[key];
+            if (value !== null && value !== undefined && value !== '') {
+              if (typeof value === 'string') {
+                // Check if it's a numeric string
+                const numValue = parseFloat(value);
+                if (isNaN(numValue) || !isFinite(numValue)) {
+                  fieldTypes[key] = 'string'; // Non-numeric string
+                } else {
+                  fieldTypes[key] = 'numeric'; // Numeric string
+                }
+              } else if (typeof value === 'number') {
+                fieldTypes[key] = 'numeric';
+              } else {
+                fieldTypes[key] = 'other';
+              }
+            }
           }
-        }
-        fieldsMap.set(lowerKey, {
-          value: key,
-          label: getFieldLabel(key),
-          type: fieldType,
-          hierarchy: 'voucher'
         });
       });
+      
+      // Define fields that should ALWAYS be categories (even if they contain numbers)
+      const forceCategoryFields = [
+        // Date fields - ALWAYS categories, never values
+        'date', 'cp_date', 'cpdate', 'cp date', 'transaction_date', 'transactiondate',
+        'voucher_date', 'voucherdate', 'bill_date', 'billdate', 'invoice_date', 'invoicedate',
+        // Location fields
+        'pincode', 'pin_code', 'pin', 'zipcode', 'zip',
+        // Voucher/ID fields
+        'vouchernumber', 'vchno', 'voucher_number', 'voucher_no',
+        'masterid', 'master_id', 'alterid', 'alter_id',
+        'partyledgernameid', 'partyid', 'party_id', 'stockitemnameid', 'itemid', 'item_id',
+        'partygstin', 'gstin', 'gst_no', 'pan', 'pan_no',
+        // Contact fields
+        'phone', 'mobile', 'telephone', 'contact',
+        // Reference fields
+        'reference', 'ref_no', 'invoice_no', 'bill_no',
+        // Address fields
+        'address', 'basicbuyeraddress', 'buyer_address',
+        // Other category fields
+        'reservedname', 'vchtype', 'vouchertypename', 'voucher_type',
+        'issales', 'is_sales'
+      ];
+      
+      // Process each field from the sales data (top-level fields only)
+      // This matches SalesDashboard's approach - process top-level first, then hierarchical
+      allKeys.forEach(key => {
+        const lowerKey = key.toLowerCase();
+        
+        // Skip if we've already added this field as a hierarchical field
+        if (fieldsMap.has(lowerKey)) {
+          const existing = fieldsMap.get(lowerKey);
+          // If existing field is hierarchical (not voucher level), skip adding top-level version
+          if (existing.hierarchy && existing.hierarchy !== 'voucher') {
+            return; // Skip - hierarchical field already exists
+          }
+        }
+        
+        // Check if this is a date field variation - if so, skip it (we'll handle dates separately)
+        const dateFieldVariations = ['cp_date', 'cpdate', 'date', 'transaction_date', 'transactiondate', 
+                                      'voucher_date', 'voucherdate', 'bill_date', 'billdate'];
+        const isDateField = dateFieldVariations.some(dv => lowerKey === dv) || 
+                            (lowerKey === 'date' || lowerKey === 'cp_date' || 
+                             (lowerKey.endsWith('_date') && !lowerKey.includes('updated') && 
+                              !lowerKey.includes('created') && !lowerKey.includes('modified')));
+        if (isDateField && fieldsMap.has('date')) {
+          return; // Skip - we already have the consolidated "date" field
+        }
+        
+        // Check if field should be forced to category
+        const shouldBeCategory = forceCategoryFields.some(cat => 
+          lowerKey === cat || lowerKey.includes(cat) || cat.includes(lowerKey)
+        );
+        
+        // Determine if field is numeric based on type analysis (but respect forced categories)
+        const isNumeric = !shouldBeCategory && fieldTypes[key] === 'numeric';
+        
+        // Determine default aggregation for numeric fields
+        let defaultAggregation = 'sum';
+        if (isNumeric) {
+          // Rate, price, margin fields should default to average
+          if (lowerKey.includes('rate') || lowerKey.includes('price') || 
+              lowerKey.includes('margin') || lowerKey.includes('percent')) {
+            defaultAggregation = 'average';
+          }
+        }
+        
+        // Use getHierarchyLevel to determine proper hierarchy for top-level fields
+        // This correctly identifies flattened inventory fields, ledger fields, etc.
+        const fieldHierarchy = getHierarchyLevel(key);
+        
+        // Create field entry - include ALL fields regardless of type
+        // Mark with proper hierarchy (not just 'voucher')
+        const field = {
+          value: key,
+          label: getFieldLabel(key),
+          type: isNumeric ? 'value' : 'category',
+          hierarchy: fieldHierarchy, // Use proper hierarchy detection
+          ...(isNumeric && { aggregation: defaultAggregation }) // Add default aggregation for numeric fields
+        };
+        
+        fieldsMap.set(lowerKey, field);
+      });
+      
+      // Add cache fields from hierarchical extractor (from nested structure)
+      // This ensures hierarchical fields take precedence and are not overwritten
+      // These fields come from nested arrays like allinventoryentries.stockitemname
+      // This matches SalesDashboard's approach - hierarchical fields override top-level
+      cacheFields.forEach(field => {
+        const key = field.value.toLowerCase();
+        // Always add hierarchical fields - they take precedence over top-level fields
+        // Hierarchical fields have hierarchy property set, top-level don't
+        if (field.hierarchy && field.hierarchy !== 'voucher') {
+          // This is a nested field - always add it (overwrites top-level if exists)
+          fieldsMap.set(key, field);
+        } else if (!fieldsMap.has(key)) {
+          // Top-level field from cache extractor - only add if not already present
+          fieldsMap.set(key, field);
+        } else {
+          // Check if existing field is hierarchical - if not, replace with hierarchical version
+          const existing = fieldsMap.get(key);
+          if (!existing.hierarchy || existing.hierarchy === 'voucher') {
+            // Existing is top-level, replace with hierarchical if available
+            if (field.hierarchy) {
+              fieldsMap.set(key, field);
+            }
+          }
+        }
+      });
     }
 
+    // Extract fields from customer/ledger data
+    if (customerData && Array.isArray(customerData) && customerData.length > 0) {
+      const sampleCustomer = customerData[0];
+      if (sampleCustomer) {
+        Object.keys(sampleCustomer).forEach(key => {
+          const lowerKey = `customers.${key}`.toLowerCase();
+          if (!key.startsWith('_') && !fieldsMap.has(lowerKey)) {
+            const value = sampleCustomer[key];
+            const fieldType = determineFieldType(value);
+            fieldsMap.set(lowerKey, {
+              value: `customers.${key}`,
+              label: getFieldLabel(key, 'Customers'),
+              type: fieldType,
+              hierarchy: 'customers'
+            });
+          }
+        });
+
+        // Also extract nested fields from customer addresses
+        if (sampleCustomer.ADDRESS && Array.isArray(sampleCustomer.ADDRESS) && sampleCustomer.ADDRESS.length > 0) {
+          const sampleAddress = sampleCustomer.ADDRESS[0];
+          Object.keys(sampleAddress).forEach(key => {
+            const lowerKey = `customers.address.${key}`.toLowerCase();
+            if (!key.startsWith('_') && !fieldsMap.has(lowerKey)) {
+              const value = sampleAddress[key];
+              const fieldType = determineFieldType(value);
+              fieldsMap.set(lowerKey, {
+                value: `customers.address.${key}`,
+                label: getFieldLabel(key, 'Customers → Address'),
+                type: fieldType,
+                hierarchy: 'customers'
+              });
+            }
+          });
+        }
+
+        // Extract contact fields
+        if (sampleCustomer.CONTACT && Array.isArray(sampleCustomer.CONTACT) && sampleCustomer.CONTACT.length > 0) {
+          const sampleContact = sampleCustomer.CONTACT[0];
+          Object.keys(sampleContact).forEach(key => {
+            const lowerKey = `customers.contact.${key}`.toLowerCase();
+            if (!key.startsWith('_') && !fieldsMap.has(lowerKey)) {
+              const value = sampleContact[key];
+              const fieldType = determineFieldType(value);
+              fieldsMap.set(lowerKey, {
+                value: `customers.contact.${key}`,
+                label: getFieldLabel(key, 'Customers → Contact'),
+                type: fieldType,
+                hierarchy: 'customers'
+              });
+            }
+          });
+        }
+      }
+    }
+
+    // Extract fields from stock items data
+    if (stockItemData && Array.isArray(stockItemData) && stockItemData.length > 0) {
+      const sampleItem = stockItemData[0];
+      if (sampleItem) {
+        Object.keys(sampleItem).forEach(key => {
+          const lowerKey = `stockitems.${key}`.toLowerCase();
+          if (!key.startsWith('_') && !fieldsMap.has(lowerKey)) {
+            const value = sampleItem[key];
+            const fieldType = determineFieldType(value);
+            fieldsMap.set(lowerKey, {
+              value: `stockitems.${key}`,
+              label: getFieldLabel(key, 'Stock Items'),
+              type: fieldType,
+              hierarchy: 'stockitems'
+            });
+          }
+        });
+      }
+    }
+
+    // Add UDF fields
     udfFields.forEach(field => {
       const lowerKey = field.value.toLowerCase();
       if (!fieldsMap.has(lowerKey)) {
@@ -2959,8 +3677,168 @@ const CustomReportModal = ({ salesData, onClose }) => {
       }
     });
 
-    return Array.from(fieldsMap.values()).sort((a, b) => a.label.localeCompare(b.label));
-  }, [rawVoucherData, salesData, udfFields]);
+    return Array.from(fieldsMap.values()).sort((a, b) => {
+      // Sort by hierarchy first, then by label
+      const hierarchyOrder = ['voucher', 'customers', 'stockitems', 'udf'];
+      const aOrder = hierarchyOrder.indexOf(a.hierarchy) >= 0 ? hierarchyOrder.indexOf(a.hierarchy) : 999;
+      const bOrder = hierarchyOrder.indexOf(b.hierarchy) >= 0 ? hierarchyOrder.indexOf(b.hierarchy) : 999;
+      if (aOrder !== bOrder) {
+        return aOrder - bOrder;
+      }
+      return a.label.localeCompare(b.label);
+    });
+  }, [rawVoucherData, salesData, udfFields, customerData, stockItemData]);
+
+  // Extract available fields for relationship configuration
+  // NOTE: This must be defined AFTER allFields
+  const relationshipFields = useMemo(() => {
+    const fields = {
+      vouchers: [],
+      customers: [],
+      stockitems: []
+    };
+
+    // Get voucher fields from allFields (including nested array fields flattened at voucher level)
+    if (allFields && Array.isArray(allFields)) {
+      const voucherFields = allFields
+        .filter(f => {
+          // Include:
+          // 1. Top-level voucher fields (not nested arrays or other tables)
+          // 2. Fields from nested arrays like ledgerentries, accountingallocation, allinventoryentries
+          //    that have been flattened to voucher level (like ledgernameid, stockitemnameid)
+          return (
+            (!f.value.includes('.') && !f.value.startsWith('customers.') && !f.value.startsWith('stockitems.') && f.hierarchy === 'voucher') ||
+            // Include flattened fields from nested arrays that are commonly used for relationships
+            (['ledgernameid', 'stockitemnameid', 'partyledgernameid', 'partyid', 'itemid'].includes(f.value.toLowerCase()))
+          );
+        })
+        .map(f => ({
+          value: f.value,
+          label: f.label || f.value
+        }));
+      
+      // Add common nested array fields that might be flattened
+      const commonNestedFields = ['ledgernameid', 'stockitemnameid', 'partyledgernameid', 'partyid', 'itemid'];
+      commonNestedFields.forEach(fieldName => {
+        if (!voucherFields.find(f => f.value.toLowerCase() === fieldName.toLowerCase())) {
+          voucherFields.push({
+            value: fieldName,
+            label: fieldName
+          });
+        }
+      });
+      
+      fields.vouchers = voucherFields.sort((a, b) => a.label.localeCompare(b.label));
+    }
+
+    // Get customer fields - extract all keys from customer data including nested
+    if (customerData && Array.isArray(customerData) && customerData.length > 0) {
+      const customerKeysSet = new Set();
+      customerData.forEach(customer => {
+        // Top-level keys
+        Object.keys(customer).forEach(key => {
+          if (!key.startsWith('_') && key !== 'ADDRESS' && key !== 'CONTACT') {
+            customerKeysSet.add(key);
+          }
+        });
+        // Nested ADDRESS fields
+        if (customer.ADDRESS && Array.isArray(customer.ADDRESS)) {
+          customer.ADDRESS.forEach(addr => {
+            Object.keys(addr).forEach(key => {
+              if (!key.startsWith('_')) {
+                customerKeysSet.add(`ADDRESS.${key}`);
+              }
+            });
+          });
+        }
+        // Nested CONTACT fields
+        if (customer.CONTACT && Array.isArray(customer.CONTACT)) {
+          customer.CONTACT.forEach(contact => {
+            Object.keys(contact).forEach(key => {
+              if (!key.startsWith('_')) {
+                customerKeysSet.add(`CONTACT.${key}`);
+              }
+            });
+          });
+        }
+      });
+      fields.customers = Array.from(customerKeysSet)
+        .map(key => ({
+          value: key,
+          label: key
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label));
+    }
+
+    // Get stock item fields - extract all keys from stock item data
+    if (stockItemData && Array.isArray(stockItemData) && stockItemData.length > 0) {
+      const stockItemKeysSet = new Set();
+      stockItemData.forEach(item => {
+        Object.keys(item).forEach(key => {
+          if (!key.startsWith('_')) {
+            stockItemKeysSet.add(key);
+          }
+        });
+      });
+      fields.stockitems = Array.from(stockItemKeysSet)
+        .map(key => ({
+          value: key,
+          label: key
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label));
+    }
+
+    return fields;
+  }, [allFields, customerData, stockItemData]);
+
+  // Auto-show relationships section if multiple tables are involved
+  useEffect(() => {
+    if (involvedTables.length > 1 && relationshipFields) {
+      setShowRelationships(true);
+      // Auto-configure default relationships if not set and fields are available
+      if (relationships.length === 0 && relationshipFields.vouchers.length > 0) {
+        const defaultRelationships = [];
+        
+        // Hardcoded default relationships based on Tally data structure
+        if (involvedTables.includes('customers') && relationshipFields.customers.length > 0) {
+          // Determine which field to use based on involved nested arrays
+          let fromField = 'partyledgernameid'; // Default: vouchers → ledger
+          
+          // Check if fields from nested arrays are selected
+          if (involvedNestedArrays.includes('ledgerentries') || involvedNestedArrays.includes('accountingallocation')) {
+            // ledgerentries → ledger: ledgernameid → masterid
+            // accountingallocation → ledger: ledgernameid → masterid
+            fromField = 'ledgernameid';
+          }
+          
+          defaultRelationships.push({
+            fromTable: 'vouchers',
+            fromField: fromField,
+            toTable: 'customers',
+            toField: 'MASTERID', // Always use MASTERID for ledger/customers table
+            joinType: 'left'
+          });
+        }
+        
+        if (involvedTables.includes('stockitems') && relationshipFields.stockitems.length > 0) {
+          // allinventoryentries → stockitem: stockitemnameid → masterid
+          // Since we're joining from vouchers (which contains allinventoryentries), 
+          // we use stockitemnameid from vouchers level
+          defaultRelationships.push({
+            fromTable: 'vouchers',
+            fromField: 'stockitemnameid',
+            toTable: 'stockitems',
+            toField: 'MASTERID', // Always use MASTERID for stockitem table
+            joinType: 'left'
+          });
+        }
+        
+        if (defaultRelationships.length > 0) {
+          setRelationships(defaultRelationships);
+        }
+      }
+    }
+  }, [involvedTables, relationships.length, relationshipFields]);
 
   const filteredFields = useMemo(() => {
     if (!searchTerm.trim()) return allFields;
@@ -2973,6 +3851,102 @@ const CustomReportModal = ({ salesData, onClose }) => {
 
   const getFieldValueForFilter = useCallback((item, fieldName) => {
     if (!item || !fieldName) return null;
+    
+    // Handle fields from customer table
+    if (fieldName.startsWith('customers.')) {
+      const customerLookupMap = window.__customerLookupMap || new Map();
+      if (customerLookupMap.size === 0) return null;
+      
+      // Use configured relationship if available
+      const relationship = (window.__reportRelationships || []).find(r => r.toTable === 'customers');
+      const fromField = relationship?.fromField || 'partyledgernameid';
+      const toField = relationship?.toField || 'MASTERID'; // vouchers/ledgerentries/accountingallocation → ledger: *id → masterid
+      
+      // Get identifier using configured field
+      let customerIdentifier = item[fromField];
+      if (!customerIdentifier) {
+        // Fallback to common fields
+        if (fromField.includes('name')) {
+          customerIdentifier = item.partyledgername || item.customer || item.partyname || item.party;
+        } else if (fromField.includes('id')) {
+          // Priority order based on mapping:
+          // 1) vouchers.partyledgernameid
+          // 2) ledgerentries.ledgernameid (flattened as ledgernameid)
+          // 3) accountingallocation.ledgernameid (flattened as ledgernameid)
+          customerIdentifier = item.partyledgernameid || item.partyid || item.ledgernameid;
+        }
+      }
+      
+      if (!customerIdentifier) return null;
+      
+      // Lookup customer
+      let customer = customerLookupMap.get(String(customerIdentifier).toLowerCase()) || 
+                     customerLookupMap.get(String(customerIdentifier));
+      
+      // Try matching by configured toField
+      if (!customer) {
+        for (const [key, value] of customerLookupMap.entries()) {
+          const toFieldValue = value?.[toField] || value?.[toField.toLowerCase()] || value?.[toField.toUpperCase()];
+          if (toFieldValue && String(toFieldValue) === String(customerIdentifier)) {
+            customer = value;
+            break;
+          }
+        }
+      }
+      
+      if (!customer) return null;
+      
+      const fieldPath = fieldName.substring('customers.'.length);
+      if (fieldPath.includes('.')) {
+        return getNestedFieldValue(customer, fieldPath);
+      } else {
+        return customer[fieldPath] || customer[fieldPath.toUpperCase()] || customer[fieldPath.toLowerCase()] || null;
+      }
+    }
+    
+    // Handle fields from stock items table
+    if (fieldName.startsWith('stockitems.')) {
+      const stockItemLookupMap = window.__stockItemLookupMap || new Map();
+      if (stockItemLookupMap.size === 0) return null;
+      
+      // Use configured relationship if available
+      const relationship = (window.__reportRelationships || []).find(r => r.toTable === 'stockitems');
+      const fromField = relationship?.fromField || 'stockitemnameid';
+      const toField = relationship?.toField || 'MASTERID'; // allinventoryentries → stockitem: stockitemnameid → masterid
+      
+      // Get identifier using configured field
+      let itemIdentifier = item[fromField];
+      if (!itemIdentifier) {
+        // Fallback to common fields
+        if (fromField.includes('name')) {
+          itemIdentifier = item.stockitemname || item.item;
+        } else if (fromField.includes('id')) {
+          itemIdentifier = item.stockitemnameid || item.itemid;
+        }
+      }
+      
+      if (!itemIdentifier) return null;
+      
+      // Lookup stock item
+      let stockItem = stockItemLookupMap.get(String(itemIdentifier).toLowerCase()) || 
+                      stockItemLookupMap.get(String(itemIdentifier));
+      
+      // Try matching by configured toField
+      if (!stockItem) {
+        for (const [key, value] of stockItemLookupMap.entries()) {
+          const toFieldValue = value?.[toField] || value?.[toField.toLowerCase()] || value?.[toField.toUpperCase()];
+          if (toFieldValue && String(toFieldValue) === String(itemIdentifier)) {
+            stockItem = value;
+            break;
+          }
+        }
+      }
+      
+      if (!stockItem) return null;
+      
+      const fieldPath = fieldName.substring('stockitems.'.length);
+      return stockItem[fieldPath] || stockItem[fieldPath.toUpperCase()] || stockItem[fieldPath.toLowerCase()] || null;
+    }
     
     if (fieldName.includes('.')) {
       const masterid = item.masterid || item.mstid;
@@ -2998,11 +3972,107 @@ const CustomReportModal = ({ salesData, onClose }) => {
   }, []);
 
   const currentFilterFieldValues = useMemo(() => {
-    if (!currentFilterField || !salesData || !Array.isArray(salesData) || salesData.length === 0) {
+    if (!currentFilterField) {
       return [];
     }
     
     const valuesSet = new Set();
+    
+    // Handle fields from customer table - get values directly from customerData
+    if (currentFilterField.startsWith('customers.')) {
+      if (customerData && Array.isArray(customerData) && customerData.length > 0) {
+        const fieldPath = currentFilterField.substring('customers.'.length);
+        customerData.forEach(customer => {
+          let value = null;
+          if (fieldPath.includes('.')) {
+            // Nested field like customers.address.street
+            value = getNestedFieldValue(customer, fieldPath);
+          } else {
+            // Direct field like customers.NAME
+            value = customer[fieldPath] || customer[fieldPath.toUpperCase()] || customer[fieldPath.toLowerCase()];
+          }
+          if (value !== null && value !== undefined && value !== '') {
+            const stringValue = String(value).trim();
+            if (stringValue) {
+              valuesSet.add(stringValue);
+            }
+          }
+        });
+      }
+      
+      // Also get values from vouchers (for values that exist in vouchers)
+      if (salesData && Array.isArray(salesData) && salesData.length > 0) {
+        salesData.forEach(sale => {
+          const fieldValue = getFieldValueForFilter(sale, currentFilterField);
+          if (fieldValue !== null && fieldValue !== undefined && fieldValue !== '') {
+            const stringValue = String(fieldValue).trim();
+            if (stringValue) {
+              valuesSet.add(stringValue);
+            }
+          }
+        });
+      }
+      
+      return Array.from(valuesSet).sort((a, b) => {
+        const numA = parseFloat(a);
+        const numB = parseFloat(b);
+        if (!isNaN(numA) && !isNaN(numB)) {
+          return numA - numB;
+        }
+        return a.localeCompare(b);
+      });
+    }
+    
+    // Handle fields from stock items table - get values directly from stockItemData
+    if (currentFilterField.startsWith('stockitems.')) {
+      if (stockItemData && Array.isArray(stockItemData) && stockItemData.length > 0) {
+        const fieldPath = currentFilterField.substring('stockitems.'.length);
+        stockItemData.forEach(item => {
+          let value = null;
+          if (fieldPath.includes('.')) {
+            // Nested field
+            value = getNestedFieldValue(item, fieldPath);
+          } else {
+            // Direct field
+            value = item[fieldPath] || item[fieldPath.toUpperCase()] || item[fieldPath.toLowerCase()];
+          }
+          if (value !== null && value !== undefined && value !== '') {
+            const stringValue = String(value).trim();
+            if (stringValue) {
+              valuesSet.add(stringValue);
+            }
+          }
+        });
+      }
+      
+      // Also get values from vouchers (for values that exist in vouchers)
+      if (salesData && Array.isArray(salesData) && salesData.length > 0) {
+        salesData.forEach(sale => {
+          const fieldValue = getFieldValueForFilter(sale, currentFilterField);
+          if (fieldValue !== null && fieldValue !== undefined && fieldValue !== '') {
+            const stringValue = String(fieldValue).trim();
+            if (stringValue) {
+              valuesSet.add(stringValue);
+            }
+          }
+        });
+      }
+      
+      return Array.from(valuesSet).sort((a, b) => {
+        const numA = parseFloat(a);
+        const numB = parseFloat(b);
+        if (!isNaN(numA) && !isNaN(numB)) {
+          return numA - numB;
+        }
+        return a.localeCompare(b);
+      });
+    }
+    
+    // Handle voucher and nested array fields - use salesData as before
+    if (!salesData || !Array.isArray(salesData) || salesData.length === 0) {
+      return [];
+    }
+    
     const isNestedArrayField = currentFilterField.includes('.');
     
     salesData.forEach(sale => {
@@ -3043,7 +4113,7 @@ const CustomReportModal = ({ salesData, onClose }) => {
       }
       return a.localeCompare(b);
     });
-  }, [currentFilterField, salesData, getFieldValueForFilter]);
+  }, [currentFilterField, salesData, customerData, stockItemData, getFieldValueForFilter]);
 
   const filteredFilterFieldValues = useMemo(() => {
     if (!filterValuesSearchTerm.trim()) {
@@ -3166,6 +4236,7 @@ const CustomReportModal = ({ salesData, onClose }) => {
           field: f.field,
           values: f.values
         })),
+        relationships: relationships.length > 0 ? relationships : undefined, // Save relationships if configured
         sortIndexes: {},
         createdAt: new Date().toISOString()
       };
@@ -3177,6 +4248,8 @@ const CustomReportModal = ({ salesData, onClose }) => {
       setSelectedFields(new Set());
       setSearchTerm('');
       setFilters([]);
+      setRelationships([]);
+      setShowRelationships(false);
       setCurrentFilterField('');
       setCurrentFilterValues(new Set());
       setFilterValuesSearchTerm('');
@@ -3723,6 +4796,317 @@ const CustomReportModal = ({ salesData, onClose }) => {
           )}
         </div>
 
+        {/* Table Relationships Configuration */}
+        {involvedTables.length > 1 && (
+          <div>
+            <div style={{
+              fontSize: '13px',
+              fontWeight: '500',
+              color: '#475569',
+              marginBottom: '12px',
+              paddingBottom: '8px',
+              borderBottom: '1px solid #e2e8f0',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span className="material-icons" style={{ fontSize: '18px', color: '#8b5cf6' }}>link</span>
+                <span>Table Relationships</span>
+                <span style={{
+                  fontSize: '11px',
+                  color: '#64748b',
+                  fontWeight: '400',
+                  marginLeft: '8px'
+                }}>
+                  (How to join {involvedTables.join(' + ')})
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowRelationships(!showRelationships)}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: '#8b5cf6',
+                  padding: '4px 8px',
+                  borderRadius: '4px',
+                  fontSize: '12px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px'
+                }}
+              >
+                {showRelationships ? 'Hide' : 'Show'}
+                <span className="material-icons" style={{
+                  fontSize: '16px',
+                  transform: showRelationships ? 'rotate(180deg)' : 'rotate(0deg)',
+                  transition: 'transform 0.2s'
+                }}>
+                  expand_more
+                </span>
+              </button>
+            </div>
+
+            {showRelationships && (
+              <div style={{
+                background: '#f8fafc',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                padding: '16px'
+              }}>
+                <div style={{
+                  fontSize: '12px',
+                  color: '#64748b',
+                  marginBottom: '12px',
+                  lineHeight: '1.5'
+                }}>
+                  Define how to join tables when fields from multiple tables are selected. 
+                  The system will use these mappings to fetch related data.
+                </div>
+
+                {involvedTables.includes('customers') && (
+                  <div style={{
+                    background: '#ffffff',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '6px',
+                    padding: '12px',
+                    marginBottom: '12px'
+                  }}>
+                    <div style={{
+                      fontSize: '12px',
+                      fontWeight: '600',
+                      color: '#1e293b',
+                      marginBottom: '10px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}>
+                      <span className="material-icons" style={{ fontSize: '16px', color: '#3b82f6' }}>people</span>
+                      {involvedNestedArrays.includes('ledgerentries') || involvedNestedArrays.includes('accountingallocation') 
+                        ? (involvedNestedArrays.includes('ledgerentries') ? 'Ledger Entries' : 'Accounting Allocation') + ' → Ledger (Customers)'
+                        : 'Vouchers → Customers'}
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', gap: '10px', alignItems: 'center' }}>
+                      <div>
+                        <label style={{ fontSize: '11px', color: '#64748b', marginBottom: '4px', display: 'block' }}>
+                          From {involvedNestedArrays.includes('ledgerentries') || involvedNestedArrays.includes('accountingallocation') 
+                            ? (involvedNestedArrays.includes('ledgerentries') ? 'Ledger Entries' : 'Accounting Allocation')
+                            : 'Vouchers'} (Field):
+                        </label>
+                        <select
+                          value={relationships.find(r => r.toTable === 'customers')?.fromField || 
+                                 (involvedNestedArrays.includes('ledgerentries') || involvedNestedArrays.includes('accountingallocation') 
+                                   ? 'ledgernameid' : 'partyledgernameid')}
+                          onChange={(e) => {
+                            const existing = relationships.find(r => r.toTable === 'customers');
+                            if (existing) {
+                              setRelationships(prev => prev.map(r => 
+                                r.toTable === 'customers' ? { ...r, fromField: e.target.value } : r
+                              ));
+                            } else {
+                              setRelationships(prev => [...prev, {
+                                fromTable: 'vouchers',
+                                fromField: e.target.value,
+                                toTable: 'customers',
+                                toField: 'PARTYLEDGERNAMEID',
+                                joinType: 'left'
+                              }]);
+                            }
+                          }}
+                          style={{
+                            width: '100%',
+                            padding: '8px',
+                            border: '1px solid #e2e8f0',
+                            borderRadius: '6px',
+                            fontSize: '12px',
+                            background: '#ffffff'
+                          }}
+                        >
+                          {relationshipFields.vouchers.length > 0 ? (
+                            relationshipFields.vouchers.map(field => (
+                              <option key={field.value} value={field.value}>
+                                {field.label}
+                              </option>
+                            ))
+                          ) : (
+                            <>
+                              <option value="partyledgernameid">Party Ledger Name ID</option>
+                              <option value="partyid">Party ID</option>
+                              <option value="partyledgername">Party Ledger Name</option>
+                              <option value="customer">Customer</option>
+                              <option value="party">Party</option>
+                            </>
+                          )}
+                        </select>
+                      </div>
+                      <div style={{ color: '#94a3b8', fontSize: '14px' }}>→</div>
+                      <div>
+                        <label style={{ fontSize: '11px', color: '#64748b', marginBottom: '4px', display: 'block' }}>
+                          To Customers (Field):
+                        </label>
+                        <select
+                          value={relationships.find(r => r.toTable === 'customers')?.toField || 'MASTERID'}
+                          onChange={(e) => {
+                            const existing = relationships.find(r => r.toTable === 'customers');
+                            if (existing) {
+                              setRelationships(prev => prev.map(r => 
+                                r.toTable === 'customers' ? { ...r, toField: e.target.value } : r
+                              ));
+                            } else {
+                              setRelationships(prev => [...prev, {
+                                fromTable: 'vouchers',
+                                fromField: (involvedNestedArrays.includes('ledgerentries') || involvedNestedArrays.includes('accountingallocation')) 
+                                  ? 'ledgernameid' : 'partyledgernameid',
+                                toTable: 'customers',
+                                toField: e.target.value,
+                                joinType: 'left'
+                              }]);
+                            }
+                          }}
+                          style={{
+                            width: '100%',
+                            padding: '8px',
+                            border: '1px solid #e2e8f0',
+                            borderRadius: '6px',
+                            fontSize: '12px',
+                            background: '#ffffff'
+                          }}
+                        >
+                          {relationshipFields.customers.length > 0 ? (
+                            relationshipFields.customers.map(field => (
+                              <option key={field.value} value={field.value}>
+                                {field.label}
+                              </option>
+                            ))
+                          ) : (
+                            <option value="PARTYLEDGERNAMEID">PARTYLEDGERNAMEID</option>
+                          )}
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {involvedTables.includes('stockitems') && (
+                  <div style={{
+                    background: '#ffffff',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '6px',
+                    padding: '12px'
+                  }}>
+                    <div style={{
+                      fontSize: '12px',
+                      fontWeight: '600',
+                      color: '#1e293b',
+                      marginBottom: '10px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}>
+                      <span className="material-icons" style={{ fontSize: '16px', color: '#22c55e' }}>inventory_2</span>
+                      Vouchers → Stock Items
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', gap: '10px', alignItems: 'center' }}>
+                      <div>
+                        <label style={{ fontSize: '11px', color: '#64748b', marginBottom: '4px', display: 'block' }}>
+                          From Vouchers (Field):
+                        </label>
+                        <select
+                          value={relationships.find(r => r.toTable === 'stockitems')?.fromField || 'stockitemnameid'}
+                          onChange={(e) => {
+                            const existing = relationships.find(r => r.toTable === 'stockitems');
+                            if (existing) {
+                              setRelationships(prev => prev.map(r => 
+                                r.toTable === 'stockitems' ? { ...r, fromField: e.target.value } : r
+                              ));
+                            } else {
+                              setRelationships(prev => [...prev, {
+                                fromTable: 'vouchers',
+                                fromField: e.target.value,
+                                toTable: 'stockitems',
+                                toField: 'STOCKITEMNAMEID',
+                                joinType: 'left'
+                              }]);
+                            }
+                          }}
+                          style={{
+                            width: '100%',
+                            padding: '8px',
+                            border: '1px solid #e2e8f0',
+                            borderRadius: '6px',
+                            fontSize: '12px',
+                            background: '#ffffff'
+                          }}
+                        >
+                          {relationshipFields.vouchers.length > 0 ? (
+                            relationshipFields.vouchers.map(field => (
+                              <option key={field.value} value={field.value}>
+                                {field.label}
+                              </option>
+                            ))
+                          ) : (
+                            <>
+                              <option value="stockitemnameid">Stock Item Name ID</option>
+                              <option value="itemid">Item ID</option>
+                              <option value="stockitemname">Stock Item Name</option>
+                              <option value="item">Item</option>
+                            </>
+                          )}
+                        </select>
+                      </div>
+                      <div style={{ color: '#94a3b8', fontSize: '14px' }}>→</div>
+                      <div>
+                        <label style={{ fontSize: '11px', color: '#64748b', marginBottom: '4px', display: 'block' }}>
+                          To Stock Items (Field):
+                        </label>
+                        <select
+                          value={relationships.find(r => r.toTable === 'stockitems')?.toField || 'MASTERID'}
+                          onChange={(e) => {
+                            const existing = relationships.find(r => r.toTable === 'stockitems');
+                            if (existing) {
+                              setRelationships(prev => prev.map(r => 
+                                r.toTable === 'stockitems' ? { ...r, toField: e.target.value } : r
+                              ));
+                            } else {
+                              setRelationships(prev => [...prev, {
+                                fromTable: 'vouchers',
+                                fromField: 'stockitemnameid',
+                                toTable: 'stockitems',
+                                toField: e.target.value,
+                                joinType: 'left'
+                              }]);
+                            }
+                          }}
+                          style={{
+                            width: '100%',
+                            padding: '8px',
+                            border: '1px solid #e2e8f0',
+                            borderRadius: '6px',
+                            fontSize: '12px',
+                            background: '#ffffff'
+                          }}
+                        >
+                          {relationshipFields.stockitems.length > 0 ? (
+                            relationshipFields.stockitems.map(field => (
+                              <option key={field.value} value={field.value}>
+                                {field.label}
+                              </option>
+                            ))
+                          ) : (
+                            <option value="STOCKITEMNAMEID">STOCKITEMNAMEID</option>
+                          )}
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         <div style={{
           display: 'flex',
           gap: '10px',
@@ -3796,6 +5180,25 @@ const CustomReportModal = ({ salesData, onClose }) => {
 
 // Pivot Table Renderer Component
 const PivotTableRenderer = ({ pivotData, pivotConfig, getFieldLabel }) => {
+  // Pagination state for columns
+  const [currentColumnPage, setCurrentColumnPage] = useState(0);
+  const COLUMNS_PER_PAGE = 20; // Number of columns to show per page
+
+  // Calculate pagination (even if pivotData is null, to avoid hook conditional call)
+  const totalColumns = pivotData?.colKeys?.length || 0;
+  const totalPages = Math.ceil(totalColumns / COLUMNS_PER_PAGE);
+  const startIndex = currentColumnPage * COLUMNS_PER_PAGE;
+  const endIndex = Math.min(startIndex + COLUMNS_PER_PAGE, totalColumns);
+  const visibleColKeys = pivotData?.colKeys?.slice(startIndex, endIndex) || [];
+
+  // Reset to first page if current page is out of bounds
+  // This hook must be called unconditionally (before any early returns)
+  useEffect(() => {
+    if (totalPages > 0 && currentColumnPage >= totalPages) {
+      setCurrentColumnPage(0);
+    }
+  }, [totalPages, currentColumnPage]);
+
   if (!pivotData) {
     return (
       <div style={{
@@ -3831,12 +5234,127 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, getFieldLabel }) => {
     return key === 'Total' ? ['Total'] : key.split('|');
   };
 
+  // Pagination Controls Component
+  const PaginationControls = ({ position }) => (
+    totalColumns > COLUMNS_PER_PAGE && (
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        padding: '12px 16px',
+        background: '#f8fafc',
+        border: '1px solid #e2e8f0',
+        borderBottom: position === 'top' ? 'none' : '1px solid #e2e8f0',
+        borderTop: position === 'bottom' ? 'none' : '1px solid #e2e8f0',
+        borderRadius: position === 'top' ? '8px 8px 0 0' : '0 0 8px 8px'
+      }}>
+        <div style={{
+          fontSize: '13px',
+          color: '#475569',
+          fontWeight: '500'
+        }}>
+          Showing columns {startIndex + 1} - {endIndex} of {totalColumns}
+        </div>
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px'
+        }}>
+          <button
+            onClick={() => setCurrentColumnPage(prev => Math.max(0, prev - 1))}
+            disabled={currentColumnPage === 0}
+            style={{
+              padding: '6px 12px',
+              border: '1px solid #cbd5e1',
+              borderRadius: '6px',
+              background: currentColumnPage === 0 ? '#f1f5f9' : '#ffffff',
+              color: currentColumnPage === 0 ? '#94a3b8' : '#475569',
+              cursor: currentColumnPage === 0 ? 'not-allowed' : 'pointer',
+              fontSize: '13px',
+              fontWeight: '500',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              transition: 'all 0.2s ease'
+            }}
+            onMouseEnter={(e) => {
+              if (currentColumnPage > 0) {
+                e.currentTarget.style.background = '#f8fafc';
+                e.currentTarget.style.borderColor = '#94a3b8';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (currentColumnPage > 0) {
+                e.currentTarget.style.background = '#ffffff';
+                e.currentTarget.style.borderColor = '#cbd5e1';
+              }
+            }}
+          >
+            <span className="material-icons" style={{ fontSize: '18px' }}>chevron_left</span>
+            Previous
+          </button>
+          <div style={{
+            padding: '6px 12px',
+            fontSize: '13px',
+            color: '#64748b',
+            fontWeight: '500',
+            background: '#ffffff',
+            border: '1px solid #e2e8f0',
+            borderRadius: '6px',
+            minWidth: '100px',
+            textAlign: 'center'
+          }}>
+            Page {currentColumnPage + 1} of {totalPages}
+          </div>
+          <button
+            onClick={() => setCurrentColumnPage(prev => Math.min(totalPages - 1, prev + 1))}
+            disabled={currentColumnPage >= totalPages - 1}
+            style={{
+              padding: '6px 12px',
+              border: '1px solid #cbd5e1',
+              borderRadius: '6px',
+              background: currentColumnPage >= totalPages - 1 ? '#f1f5f9' : '#ffffff',
+              color: currentColumnPage >= totalPages - 1 ? '#94a3b8' : '#475569',
+              cursor: currentColumnPage >= totalPages - 1 ? 'not-allowed' : 'pointer',
+              fontSize: '13px',
+              fontWeight: '500',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              transition: 'all 0.2s ease'
+            }}
+            onMouseEnter={(e) => {
+              if (currentColumnPage < totalPages - 1) {
+                e.currentTarget.style.background = '#f8fafc';
+                e.currentTarget.style.borderColor = '#94a3b8';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (currentColumnPage < totalPages - 1) {
+                e.currentTarget.style.background = '#ffffff';
+                e.currentTarget.style.borderColor = '#cbd5e1';
+              }
+            }}
+          >
+            Next
+            <span className="material-icons" style={{ fontSize: '18px' }}>chevron_right</span>
+          </button>
+        </div>
+      </div>
+    )
+  );
+
   return (
-    <div style={{
-      overflowX: 'auto',
-      border: '1px solid #d1d5db',
-      background: 'white'
-    }}>
+    <div>
+      {/* Pagination Controls - Top */}
+      <PaginationControls position="top" />
+      
+      <div style={{
+        overflowX: 'auto',
+        border: '1px solid #d1d5db',
+        background: 'white',
+        borderTop: totalColumns > COLUMNS_PER_PAGE ? 'none' : '1px solid #d1d5db'
+      }}>
       <table style={{
         width: '100%',
         borderCollapse: 'collapse',
@@ -3866,7 +5384,7 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, getFieldLabel }) => {
                 ))}
                 {/* Column field label header */}
                 <th
-                  colSpan={pivotConfig.values.length * pivotData.colKeys.length}
+                  colSpan={pivotConfig.values.length * visibleColKeys.length}
                   style={{
                     padding: '6px 8px',
                     border: '1px solid #d1d5db',
@@ -3876,6 +5394,18 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, getFieldLabel }) => {
                   }}
                 >
                   {pivotConfig.columns.map(c => c.label).join(' / ')}
+                  {totalColumns > COLUMNS_PER_PAGE && (
+                    <span style={{ 
+                      fontSize: '11px', 
+                      fontWeight: '400', 
+                      marginLeft: '8px', 
+                      color: '#64748b',
+                      display: 'block',
+                      marginTop: '2px'
+                    }}>
+                      (Page {currentColumnPage + 1} of {totalPages})
+                    </span>
+                  )}
                 </th>
                 {/* Total column header - only show if there are multiple value fields or multiple columns */}
                 {pivotConfig.values.length > 0 && (pivotConfig.values.length > 1 || Array.from(pivotData.colKeys).length > 1) && (
@@ -3897,7 +5427,7 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, getFieldLabel }) => {
               </tr>
               <tr style={{ background: '#f3f4f6' }}>
                 {/* Second header row - Item names (merged across value fields) */}
-                {pivotData.colKeys.map(colKey => {
+                {visibleColKeys.map(colKey => {
                   const colValues = splitKey(colKey);
                   const itemName = colValues.join(' / ');
                   return (
@@ -3919,7 +5449,7 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, getFieldLabel }) => {
               </tr>
               <tr style={{ background: '#f3f4f6' }}>
                 {/* Third header row - Value field names (Amount, Quantity, etc.) */}
-                {pivotData.colKeys.map(colKey => {
+                {visibleColKeys.map(colKey => {
                   return pivotConfig.values.map((valueField, vIdx) => (
                     <th
                       key={`value-${colKey}-${vIdx}`}
@@ -4084,7 +5614,7 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, getFieldLabel }) => {
                       />
                     ))}
                     {/* Data cells - show subtotals */}
-                    {pivotData.colKeys.map(colKey => {
+                    {visibleColKeys.map(colKey => {
                       return pivotConfig.values.map((valueField, vIdx) => (
                         <td
                           key={`subtotal-cell-${colKey}-${vIdx}`}
@@ -4194,7 +5724,7 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, getFieldLabel }) => {
                       </td>
                     )}
                     {/* Data cells */}
-                    {pivotData.colKeys.map(colKey => {
+                    {visibleColKeys.map(colKey => {
                       return pivotConfig.values.map((valueField, vIdx) => (
                         <td
                           key={`cell-${rowKey}-${colKey}-${vIdx}`}
@@ -4244,7 +5774,7 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, getFieldLabel }) => {
               >
                 Grand Total
               </td>
-              {pivotData.colKeys.map(colKey => {
+              {visibleColKeys.map(colKey => {
                 return pivotConfig.values.map((valueField, vIdx) => (
                   <td
                     key={`col-total-${colKey}-${vIdx}`}
@@ -4281,6 +5811,10 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, getFieldLabel }) => {
           )}
         </tbody>
       </table>
+    </div>
+
+      {/* Pagination Controls - Bottom */}
+      <PaginationControls position="bottom" />
     </div>
   );
 };
