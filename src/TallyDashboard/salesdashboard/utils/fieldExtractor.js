@@ -13,7 +13,9 @@ export const HIERARCHY_MAP = {
   'inventoryentries': 'Inventory Entries',
   'batchallocation': 'Batch Allocations',
   'accountingallocation': 'Accounting Allocations',
-  'address': 'Address'
+  'address': 'Address',
+  'customers': 'Customers Table',
+  'stockitems': 'Stock Items Table'
 };
 
 // Fields that should always be categories (even if numeric)
@@ -187,8 +189,9 @@ function traverseObject(obj, path = '', fields = new Map(), hierarchy = {}, maxD
 
 /**
  * Gets hierarchy level from field path
+ * Exported for use in field categorization
  */
-function getHierarchyLevel(fieldPath) {
+export function getHierarchyLevel(fieldPath) {
   const parts = fieldPath.split('.');
   const firstPart = parts[0].toLowerCase();
   
@@ -215,6 +218,81 @@ function getHierarchyLevel(fieldPath) {
   
   if (firstPart === 'address') {
     return 'address';
+  }
+  
+  // Detect stock item/inventory fields even when flattened to top level
+  // These fields come from inventory entries but may be at voucher level due to flattening
+  const stockItemFieldPatterns = [
+    'stockitem',           // stockitemname, stockitemcategory, stockitemgroup, stockitemnameid, stockitemgrouplist, etc.
+    '^item$',              // exact match for "item" field (flattened from inventory)
+    '^itemid$',            // exact match for "itemid" field
+    '^category$',          // exact match for "category" field (stockitemcategory)
+    '^quantity$',          // quantity (from inventory entry)
+    '^qty$',               // qty
+    'billedqty',           // billedqty
+    'actualqty',           // actualqty
+    '^uom$',               // unit of measure
+    'grosscost',           // grosscost
+    'grossexpense',        // grossexpense
+    '^profit$',            // profit (item-level profit, not voucher total)
+    'ledgergroup',         // ledger group from accounting allocation (note: camelCase)
+    'accountingallocation', // accounting allocation (inventory-level)
+    'batchallocation',     // batch allocation (inventory-level)
+    'rate',                // item rate
+    'mrp',                 // maximum retail price
+    'discount',            // item discount
+    'mfgdate',             // manufacture date
+    'expdate',             // expiry date
+    'batch',               // batch number
+    'godown',              // godown/location
+    'location',
+    'isdeemedpositive'     // inventory-level flag
+  ];
+  
+  // Check if field matches stock item patterns (for top-level flattened fields)
+  // Use case-insensitive matching
+  const isStockItemField = stockItemFieldPatterns.some(pattern => {
+    const regex = new RegExp(pattern, 'i');
+    return regex.test(firstPart);
+  });
+  
+  // Exclude fields that are clearly voucher-level even if they match patterns
+  // These should stay at voucher level
+  const voucherLevelExceptions = [
+    'vouchernumber', 'vchno', 'voucher_number', 'voucher',
+    'partyledger', 'customer', 'party', 'partyname', 'partyid',
+    'date', 'cp_date', 'referencedate',
+    'salesperson', 'salesprsn',
+    'country', 'state', 'region', 'pincode',  // location fields at voucher level
+    'reference', 'alterid', 'masterid', 'mstid',  // voucher identifiers
+    'reservedname', 'vouchertype', 'vchtype', 'vouchertypename', 'vouchertypeidentify',
+    'iscancelled', 'isoptional',  // voucher metadata
+    'department', 'consigneecountryname', 'consigneestatename',  // voucher-level fields
+    'basicbuyeraddress', 'gstno', 'partygstin',  // voucher/customer level fields
+    'amount'  // Amount is ambiguous - voucher total vs item amount
+    // Note: Item amount is also called "amount" in flattened structure,
+    // but we'll default to voucher level and let explicit item amount fields handle it
+  ];
+  
+  // Special handling for "amount" - in flattened data, both voucher total and item amount exist
+  // We need to distinguish them. Item amount should ideally be under inventory.
+  // But since both use "amount", we'll check context.
+  // For now, treat top-level "amount" as voucher-level (voucher total)
+  // Item-specific amounts should be handled through other patterns
+  
+  const isVoucherLevelException = voucherLevelExceptions.some(exception => {
+    const exceptionLower = exception.toLowerCase();
+    // Handle regex patterns (ending with $)
+    if (exceptionLower.endsWith('$')) {
+      const pattern = exceptionLower.slice(0, -1);
+      const regex = new RegExp(pattern + '$', 'i');
+      return regex.test(firstPart);
+    }
+    return firstPart.includes(exceptionLower) || firstPart === exceptionLower;
+  });
+  
+  if (isStockItemField && !isVoucherLevelException) {
+    return 'allinventoryentries';
   }
   
   // Default to voucher level
