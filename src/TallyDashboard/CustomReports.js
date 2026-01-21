@@ -3,6 +3,8 @@ import { hybridCache } from '../utils/hybridCache';
 import { getNestedFieldValue, extractAllFieldsFromCache, getNestedFieldValues, HIERARCHY_MAP, getHierarchyLevel } from './salesdashboard/utils/fieldExtractor';
 import { loadUdfConfig, getAvailableUdfFields } from '../utils/udfConfigLoader';
 import * as XLSX from 'xlsx';
+import { apiGet, apiPost, apiPut, apiDelete } from '../utils/apiUtils';
+import { API_CONFIG } from '../config';
 
 const CustomReports = () => {
   const [reports, setReports] = useState([]);
@@ -22,6 +24,7 @@ const CustomReports = () => {
   const [salesData, setSalesData] = useState([]);
   const [hideDuplicates, setHideDuplicates] = useState(true);
   const [showCustomReportModal, setShowCustomReportModal] = useState(false);
+  const [editingReport, setEditingReport] = useState(null); // null = create, object = edit
   
   // Pivot Table Fields state
   const [showPivotFieldsPanel, setShowPivotFieldsPanel] = useState(false);
@@ -34,36 +37,159 @@ const CustomReports = () => {
   const [pivotTableData, setPivotTableData] = useState(null);
   const [isPivotMode, setIsPivotMode] = useState(false);
   const [fieldConfigModal, setFieldConfigModal] = useState(null); // { field, area, index }
+  const [selectedCompanyGuidState, setSelectedCompanyGuidState] = useState(() => sessionStorage.getItem('selectedCompanyGuid') || '');
 
-  // Load reports from localStorage
-  const loadReports = useCallback(() => {
+  // Helper function to get current company info
+  const getCurrentCompany = useCallback(() => {
     try {
-      const storedReports = JSON.parse(localStorage.getItem('customReports') || '[]');
-      setReports(storedReports);
+      const companies = JSON.parse(sessionStorage.getItem('allConnections') || '[]');
+      const selectedCompanyGuid = sessionStorage.getItem('selectedCompanyGuid') || '';
+      const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId') || '';
+      
+      const currentCompanyObj = companies.find(c =>
+        c.guid === selectedCompanyGuid &&
+        (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+      );
+      
+      return currentCompanyObj && currentCompanyObj.tallyloc_id && currentCompanyObj.guid 
+        ? currentCompanyObj 
+        : null;
     } catch (error) {
-      console.error('Error loading custom reports:', error);
-      setReports([]);
+      console.error('Error getting current company:', error);
+      return null;
     }
   }, []);
 
+  // Load reports from API (reusing dashboard cards endpoint)
+  const loadReports = useCallback(async () => {
+    try {
+      const currentCompanyObj = getCurrentCompany();
+      
+      if (!currentCompanyObj) {
+        // Fallback to localStorage if company info not available
+        try {
+          const storedReports = JSON.parse(localStorage.getItem('customReports') || '[]');
+          setReports(storedReports);
+        } catch (e) {
+          setReports([]);
+        }
+        return;
+      }
+      
+      // Use same endpoint as dashboard cards, but with dashboardType=custom-reports
+      const endpoint = `${API_CONFIG.ENDPOINTS.CUSTOM_CARD_GET}?tallylocId=${currentCompanyObj.tallyloc_id}&coGuid=${currentCompanyObj.guid}&dashboardType=custom-reports`;
+      const response = await apiGet(endpoint);
+      
+      if (response && response.status === 'success' && response.data) {
+        const items = Array.isArray(response.data) ? response.data : [];
+        // Filter only active items and map to report format
+        const reports = items
+          .filter(item => item.isActive !== 0)
+          .map(item => {
+            // Parse cardConfig if it's a string (contains report config)
+            let reportConfig = item.cardConfig;
+            if (typeof reportConfig === 'string') {
+              try {
+                reportConfig = JSON.parse(reportConfig);
+              } catch (e) {
+                console.warn('Failed to parse report config:', e);
+                reportConfig = {};
+              }
+            }
+            
+          // Map API response to report format
+          return {
+            id: item.id.toString(),
+            title: item.title,
+            fields: reportConfig.fields || [],
+            filters: reportConfig.filters || [],
+            relationships: reportConfig.relationships || [],
+            pivotConfig: reportConfig.pivotConfig || null,
+            isPivotMode: reportConfig.isPivotMode || false,
+            sortIndexes: reportConfig.sortIndexes || {},
+            savedPivots: reportConfig.savedPivots || [],
+            activePivotId: null,
+            createdAt: item.createdAt || item.created_at || new Date().toISOString()
+          };
+          });
+        
+        setReports(reports);
+        console.log('✅ Loaded custom reports from backend:', reports.length);
+      } else {
+        console.warn('⚠️ No custom reports found or invalid response:', response);
+        // Fallback to localStorage
+        try {
+          const storedReports = JSON.parse(localStorage.getItem('customReports') || '[]');
+          setReports(storedReports);
+        } catch (e) {
+          setReports([]);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading custom reports:', error);
+      // Fallback to localStorage if API fails
+      try {
+        const storedReports = JSON.parse(localStorage.getItem('customReports') || '[]');
+        setReports(storedReports);
+      } catch (e) {
+        setReports([]);
+      }
+    }
+  }, [getCurrentCompany, selectedCompanyGuidState]);
+
+  // Initial load + reload when company state changes
   useEffect(() => {
     loadReports();
   }, [loadReports]);
 
+  // Keep selectedCompanyGuidState in sync with sessionStorage so reports refresh when sidebar company changes
+  useEffect(() => {
+    const handleStorageChange = (e) => {
+      if (e.key === 'selectedCompanyGuid') {
+        const newGuid = e.newValue || '';
+        if (newGuid !== selectedCompanyGuidState) {
+          console.log('🔄 CustomReports: selectedCompanyGuid changed via storage:', newGuid);
+          setSelectedCompanyGuidState(newGuid);
+        }
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+
+    // Poll in same tab (storage event doesn't fire for same-tab changes)
+    const pollInterval = setInterval(() => {
+      const currentGuid = sessionStorage.getItem('selectedCompanyGuid') || '';
+      if (currentGuid !== selectedCompanyGuidState) {
+        console.log('🔄 CustomReports: selectedCompanyGuid changed (polled):', currentGuid);
+        setSelectedCompanyGuidState(currentGuid);
+      }
+    }, 5000);
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      clearInterval(pollInterval);
+    };
+  }, [selectedCompanyGuidState]);
+
   // Delete report handler
-  const handleDeleteReport = (reportId, e) => {
+  const handleDeleteReport = async (reportId, e) => {
     e.stopPropagation(); // Prevent opening the report when clicking delete
     
     if (window.confirm('Are you sure you want to delete this report? This action cannot be undone.')) {
       try {
-        const updatedReports = reports.filter(r => r.id !== reportId);
-        localStorage.setItem('customReports', JSON.stringify(updatedReports));
-        setReports(updatedReports);
+        const response = await apiDelete(API_CONFIG.ENDPOINTS.CUSTOM_CARD_DELETE(reportId));
         
-        // If the deleted report was open, close the modal
-        if (selectedReport && selectedReport.id === reportId) {
-          setShowReportModal(false);
-          setSelectedReport(null);
+        if (response && response.status === 'success') {
+          const updatedReports = reports.filter(r => r.id !== reportId);
+          setReports(updatedReports);
+          
+          // If the deleted report was open, close the modal
+          if (selectedReport && selectedReport.id === reportId) {
+            setShowReportModal(false);
+            setSelectedReport(null);
+          }
+        } else {
+          throw new Error('Failed to delete report');
         }
       } catch (error) {
         console.error('Error deleting report:', error);
@@ -746,22 +872,31 @@ const CustomReports = () => {
     // Step 2: Group data by row and column fields
     const groupedData = new Map(); // rowKey -> Map(columnKey -> items[])
     
+    const buildKey = (parts, isTotal) => {
+      if (isTotal) return 'Total';
+      // Use JSON encoding so values can safely contain any characters (including |)
+      try {
+        return JSON.stringify(parts);
+      } catch (e) {
+        // Fallback to simple join if something goes wrong
+        return parts.join(' | ');
+      }
+    };
+    
     filteredData.forEach(item => {
       // Create row key from row fields
-      const rowKey = config.rows.length > 0 
-        ? config.rows.map(r => {
-            const val = getFieldValue(item, r.field);
-            return val != null ? String(val) : '(blank)';
-          }).join('|')
-        : 'Total';
+      const rowParts = config.rows.map(r => {
+        const val = getFieldValue(item, r.field);
+        return val != null ? String(val) : '(blank)';
+      });
+      const rowKey = buildKey(rowParts, config.rows.length === 0);
       
       // Create column key from column fields
-      const colKey = config.columns.length > 0
-        ? config.columns.map(c => {
-            const val = getFieldValue(item, c.field);
-            return val != null ? String(val) : '(blank)';
-          }).join('|')
-        : 'Total';
+      const colParts = config.columns.map(c => {
+        const val = getFieldValue(item, c.field);
+        return val != null ? String(val) : '(blank)';
+      });
+      const colKey = buildKey(colParts, config.columns.length === 0);
       
       if (!groupedData.has(rowKey)) {
         groupedData.set(rowKey, new Map());
@@ -792,9 +927,20 @@ const CustomReports = () => {
 
     // Sort row keys intelligently (handle dates, numbers, and text)
     pivotData.rowKeys.sort((a, b) => {
-      // Split keys by | to handle hierarchical grouping
-      const aParts = a.split('|');
-      const bParts = b.split('|');
+      // Decode keys back into parts (they were JSON-encoded)
+      const safeParse = (key) => {
+        if (key === 'Total') return ['Total'];
+        try {
+          const parsed = JSON.parse(key);
+          return Array.isArray(parsed) ? parsed : [String(parsed)];
+        } catch (e) {
+          // Fallback for any legacy/plain keys
+          return String(key).split('|');
+        }
+      };
+      
+      const aParts = safeParse(a);
+      const bParts = safeParse(b);
       
       // Compare each level of the hierarchy
       for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
@@ -924,38 +1070,223 @@ const CustomReports = () => {
     }
   }, [pivotConfig, isPivotMode, reportData, generatePivotTable]);
 
-  // Save pivot config to report
-  const savePivotConfigToReport = useCallback((config) => {
+  // Save pivot config to report via API
+  const savePivotConfigToReport = useCallback(async (config) => {
     if (!selectedReport) return;
     
     try {
-      const existingReports = JSON.parse(localStorage.getItem('customReports') || '[]');
-      const updatedReports = existingReports.map(r => {
-        if (r.id === selectedReport.id) {
-          return {
-            ...r,
-            pivotConfig: config,
-            isPivotMode: config && (config.rows.length > 0 || config.columns.length > 0) && config.values.length > 0
-          };
-        }
-        return r;
-      });
-      localStorage.setItem('customReports', JSON.stringify(updatedReports));
+      const currentCompanyObj = getCurrentCompany();
+      if (!currentCompanyObj) {
+        console.error('Company info not available for saving pivot config');
+        return;
+      }
       
-      // Update the selectedReport state
-      setSelectedReport(prev => prev ? {
-        ...prev,
-        pivotConfig: config,
-        isPivotMode: config && (config.rows.length > 0 || config.columns.length > 0) && config.values.length > 0
-      } : null);
+      const isPivotMode = config && (config.rows.length > 0 || config.columns.length > 0) && config.values.length > 0;
+      
+      // Find first numeric field for valueField (required by API)
+      const fieldsArray = selectedReport.fields || [];
+      const numericFields = ['amount', 'value', 'quantity', 'qty', 'rate', 'price', 'total'];
+      const defaultValueField = fieldsArray.find(f => 
+        numericFields.some(nf => f.toLowerCase().includes(nf))
+      ) || fieldsArray[0] || 'amount'; // Use first field or default to 'amount'
+      
+      // Prepare update payload
+      const updatePayload = {
+        tallylocId: currentCompanyObj.tallyloc_id,
+        coGuid: currentCompanyObj.guid,
+        dashboardType: 'custom-reports',
+        title: selectedReport.title,
+        chartType: 'table',
+        // Required fields by API (even though not used for reports)
+        valueField: defaultValueField,
+        aggregation: 'sum', // Default aggregation (required by API)
+        groupBy: null,
+        topN: null,
+        filters: [],
+        sortOrder: 0,
+        cardConfig: {
+          fields: fieldsArray,
+          filters: selectedReport.filters || [],
+          relationships: selectedReport.relationships || [],
+          sortIndexes: selectedReport.sortIndexes || {},
+          pivotConfig: config,
+          isPivotMode: isPivotMode,
+          savedPivots: selectedReport.savedPivots || []
+        }
+      };
+      
+      const response = await apiPut(API_CONFIG.ENDPOINTS.CUSTOM_CARD_UPDATE(selectedReport.id), updatePayload);
+      
+      if (response && response.status === 'success') {
+        // Update the selectedReport state
+        setSelectedReport(prev => prev ? {
+          ...prev,
+          pivotConfig: config,
+          isPivotMode: isPivotMode
+        } : null);
+        
+        // Update reports list
+        setReports(prev => prev.map(r => 
+          r.id === selectedReport.id 
+            ? { ...r, pivotConfig: config, isPivotMode: isPivotMode }
+            : r
+        ));
+      }
     } catch (error) {
       console.error('Error saving pivot config:', error);
     }
-  }, [selectedReport]);
+  }, [selectedReport, getCurrentCompany]);
+
+  // Save current pivot view as a named pivot report
+  const handleSaveCurrentPivotView = useCallback(async () => {
+    if (!selectedReport || !isPivotMode || !pivotConfig || !pivotTableData) {
+      alert('Please create a pivot table before saving a view.');
+      return;
+    }
+
+    const name = window.prompt('Enter a name for this pivot view:', `${selectedReport.title} - Pivot`);
+    if (!name || !name.trim()) {
+      return;
+    }
+
+    const trimmedName = name.trim();
+    const newPivot = {
+      id: Date.now().toString(),
+      name: trimmedName,
+      config: pivotConfig
+    };
+
+    const updatedSavedPivots = [...(selectedReport.savedPivots || []), newPivot];
+
+    // Update local state
+    setSelectedReport(prev => prev ? { ...prev, savedPivots: updatedSavedPivots } : prev);
+    setReports(prev => prev.map(r => r.id === selectedReport.id ? { ...r, savedPivots: updatedSavedPivots } : r));
+
+    // Persist to backend
+    try {
+      const currentCompanyObj = getCurrentCompany();
+      if (!currentCompanyObj) {
+        console.error('Company info not available for saving pivot view');
+        return;
+      }
+
+      // Find first numeric field for valueField (required by API)
+      const fieldsArray = selectedReport.fields || [];
+      const numericFields = ['amount', 'value', 'quantity', 'qty', 'rate', 'price', 'total'];
+      const defaultValueField = fieldsArray.find(f =>
+        numericFields.some(nf => f.toLowerCase().includes(nf))
+      ) || fieldsArray[0] || 'amount';
+
+      const updatePayload = {
+        tallylocId: currentCompanyObj.tallyloc_id,
+        coGuid: currentCompanyObj.guid,
+        dashboardType: 'custom-reports',
+        title: selectedReport.title,
+        chartType: 'table',
+        // Required fields by API
+        valueField: defaultValueField,
+        aggregation: 'sum',
+        groupBy: null,
+        topN: null,
+        filters: [],
+        sortOrder: 0,
+        cardConfig: {
+          fields: fieldsArray,
+          filters: selectedReport.filters || [],
+          relationships: selectedReport.relationships || [],
+          sortIndexes: selectedReport.sortIndexes || {},
+          pivotConfig: pivotConfig,
+          isPivotMode: true,
+          savedPivots: updatedSavedPivots
+        }
+      };
+
+      const response = await apiPut(API_CONFIG.ENDPOINTS.CUSTOM_CARD_UPDATE(selectedReport.id), updatePayload);
+      if (!response || response.status !== 'success') {
+        throw new Error('Failed to save pivot view');
+      }
+
+      alert('Pivot view saved successfully!');
+    } catch (error) {
+      console.error('Error saving pivot view:', error);
+      alert('Failed to save pivot view. Please try again.');
+    }
+  }, [selectedReport, isPivotMode, pivotConfig, pivotTableData, getCurrentCompany, setSelectedReport, setReports]);
+
+  // Delete a saved pivot view
+  const handleDeletePivotView = useCallback(async (report, pivotId) => {
+    if (!report || !pivotId) return;
+    if (!window.confirm('Delete this pivot view? This action cannot be undone.')) return;
+
+    const updatedSavedPivots = (report.savedPivots || []).filter(p => p.id !== pivotId);
+
+    // Update local state
+    setReports(prev => prev.map(r =>
+      r.id === report.id ? { ...r, savedPivots: updatedSavedPivots } : r
+    ));
+    setSelectedReport(prev => prev && prev.id === report.id
+      ? { ...prev, savedPivots: updatedSavedPivots }
+      : prev
+    );
+
+    try {
+      const currentCompanyObj = getCurrentCompany();
+      if (!currentCompanyObj) {
+        console.error('Company info not available for deleting pivot view');
+        return;
+      }
+
+      const fieldsArray = report.fields || [];
+      const numericFields = ['amount', 'value', 'quantity', 'qty', 'rate', 'price', 'total'];
+      const defaultValueField = fieldsArray.find(f =>
+        numericFields.some(nf => f.toLowerCase().includes(nf))
+      ) || fieldsArray[0] || 'amount';
+
+      const updatePayload = {
+        tallylocId: currentCompanyObj.tallyloc_id,
+        coGuid: currentCompanyObj.guid,
+        dashboardType: 'custom-reports',
+        title: report.title,
+        chartType: 'table',
+        valueField: defaultValueField,
+        aggregation: 'sum',
+        groupBy: null,
+        topN: null,
+        filters: [],
+        sortOrder: 0,
+        cardConfig: {
+          fields: fieldsArray,
+          filters: report.filters || [],
+          relationships: report.relationships || [],
+          sortIndexes: report.sortIndexes || {},
+          pivotConfig: report.pivotConfig || null,
+          isPivotMode: report.isPivotMode || false,
+          savedPivots: updatedSavedPivots
+        }
+      };
+
+      const response = await apiPut(API_CONFIG.ENDPOINTS.CUSTOM_CARD_UPDATE(report.id), updatePayload);
+      if (!response || response.status !== 'success') {
+        throw new Error('Failed to delete pivot view');
+      }
+    } catch (error) {
+      console.error('Error deleting pivot view:', error);
+      alert('Failed to delete pivot view. Please try again.');
+    }
+  }, [getCurrentCompany, setReports, setSelectedReport]);
 
   // Open report modal
-  const handleOpenReport = (report) => {
-    setSelectedReport(report);
+  const handleOpenReport = (report, pivotOverride = null) => {
+    const effectivePivotConfig = pivotOverride?.config || report.pivotConfig;
+    const effectiveIsPivotMode = pivotOverride ? true : (report.isPivotMode || false);
+    const effectiveShowFieldsPanel = pivotOverride ? true : (report.showPivotFieldsPanel || false);
+
+    setSelectedReport({
+      ...report,
+      pivotConfig: effectivePivotConfig || report.pivotConfig || null,
+      isPivotMode: effectiveIsPivotMode,
+      activePivotId: pivotOverride?.id || null
+    });
     
     // Store relationship configuration for use in getFieldValue
     if (report.relationships && Array.isArray(report.relationships)) {
@@ -987,10 +1318,10 @@ const CustomReports = () => {
     }
     
     // Restore pivot table state if saved
-    if (report.pivotConfig) {
-      setPivotConfig(report.pivotConfig);
-      setIsPivotMode(report.isPivotMode || false);
-      setShowPivotFieldsPanel(report.showPivotFieldsPanel || false);
+    if (effectivePivotConfig) {
+      setPivotConfig(effectivePivotConfig);
+      setIsPivotMode(effectiveIsPivotMode);
+      setShowPivotFieldsPanel(effectiveShowFieldsPanel);
     } else {
       // Reset to defaults if no saved state
       setPivotConfig({ filters: [], rows: [], columns: [], values: [] });
@@ -1283,24 +1614,143 @@ const CustomReports = () => {
   // Format cell value
   const formatCellValue = (value, column) => {
     if (value === null || value === undefined || value === '') return '-';
-    
+
+    // Handle numeric formatting
     if (column.format === 'number') {
       const numValue = typeof value === 'number' ? value : parseFloat(value);
       if (Number.isFinite(numValue)) {
         return numValue.toLocaleString('en-IN');
       }
     }
-    
+
+    // Handle date-like fields
     if (column.key === 'date' || column.key === 'cp_date') {
       if (typeof value === 'string' && value.length === 8 && /^\d+$/.test(value)) {
         const year = value.substring(0, 4);
         const month = value.substring(4, 6);
         const day = value.substring(6, 8);
         const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-        return `${day}-${monthNames[parseInt(month) - 1]}-${year.slice(-2)}`;
+        return `${day}-${monthNames[parseInt(month, 10) - 1]}-${year.slice(-2)}`;
       }
     }
-    
+
+    // Special handling for address-like fields which often come as JSON strings/arrays
+    const isAddressColumn =
+      (column.key && column.key.toLowerCase().includes('address')) ||
+      (column.label && column.label.toLowerCase().includes('address'));
+
+    const tryFormatAddressObject = (addrObj) => {
+      if (!addrObj || typeof addrObj !== 'object') return null;
+      const parts = [addrObj.address1, addrObj.address2, addrObj.address3]
+        .filter(Boolean)
+        .map(part => String(part).trim())
+        .filter(Boolean);
+      return parts.length > 0 ? parts.join(', ') : null;
+    };
+
+    if (isAddressColumn) {
+      // Case 1: value is a single JSON string representing an address or array of addresses
+      if (typeof value === 'string' && value.includes('address1')) {
+        try {
+          const parsed = JSON.parse(value);
+          if (Array.isArray(parsed)) {
+            const parts = parsed
+              .map(tryFormatAddressObject)
+              .filter(Boolean);
+            if (parts.length > 0) return parts.join(', ');
+          } else {
+            const formatted = tryFormatAddressObject(parsed);
+            if (formatted) return formatted;
+          }
+        } catch (e) {
+          // fall through to generic handling
+        }
+      }
+
+      // Case 2: value is an array of objects or JSON strings
+      if (Array.isArray(value)) {
+        const parts = [];
+        value.forEach(item => {
+          if (typeof item === 'string' && item.includes('address1')) {
+            try {
+              const obj = JSON.parse(item);
+              const formatted = tryFormatAddressObject(obj);
+              if (formatted) parts.push(formatted);
+            } catch (e) {
+              // ignore parse error and just push raw
+              parts.push(String(item));
+            }
+          } else if (item && typeof item === 'object') {
+            const formatted = tryFormatAddressObject(item);
+            if (formatted) parts.push(formatted);
+          } else if (item) {
+            parts.push(String(item));
+          }
+        });
+        if (parts.length > 0) {
+          return parts.join(', ');
+        }
+      }
+    }
+
+    // Safely handle objects/arrays so React never receives a raw object as a child
+    if (typeof value === 'object') {
+      // Common address shape: single object { address1, address2, ... }
+      if (value && !Array.isArray(value)) {
+        if (value.address1 || value.address2 || value.address3) {
+          const parts = [value.address1, value.address2, value.address3]
+            .filter(Boolean)
+            .map(part => String(part).trim())
+            .filter(Boolean);
+          if (parts.length > 0) {
+            return parts.join(', ');
+          }
+        }
+      }
+
+      // Arrays – often list of address objects: [{ address1 }, { address1 }, ...]
+      if (Array.isArray(value)) {
+        // If looks like array of address-like objects, flatten nicely
+        const allAreAddressObjects = value.every(
+          item =>
+            item &&
+            typeof item === 'object' &&
+            (item.address1 || item.address2 || item.address3)
+        );
+
+        if (allAreAddressObjects) {
+          const parts = [];
+          value.forEach(item => {
+            [item.address1, item.address2, item.address3]
+              .filter(Boolean)
+              .forEach(part => {
+                const trimmed = String(part).trim();
+                if (trimmed) parts.push(trimmed);
+              });
+          });
+
+          if (parts.length > 0) {
+            return parts.join(', ');
+          }
+        }
+
+        // Generic array → comma-separated strings
+        return value
+          .map(item =>
+            item && typeof item === 'object' ? JSON.stringify(item) : String(item)
+          )
+          .join(', ');
+      }
+
+      // Fallback: JSON string for any other object
+      try {
+        return JSON.stringify(value);
+      } catch (e) {
+        return String(value);
+      }
+    }
+
+    // Primitive values (string/number/boolean) are safe to render directly
     return value;
   };
 
@@ -1389,7 +1839,8 @@ const CustomReports = () => {
             {/* Create Custom Report Button */}
             <button
               onClick={() => {
-                console.log('🔒 Opening Custom Report Modal - using existing sales data only, no API calls should occur. Sales data count:', salesData.length);
+                console.log('🔒 Opening Custom Report Modal (create) - using existing sales data only, no API calls should occur. Sales data count:', salesData.length);
+                setEditingReport(null);
                 setShowCustomReportModal(true);
               }}
               disabled={salesData.length === 0}
@@ -1508,7 +1959,8 @@ const CustomReports = () => {
             </p>
             <button
               onClick={() => {
-                console.log('🔒 Opening Custom Report Modal - using existing sales data only, no API calls should occur. Sales data count:', salesData.length);
+                console.log('🔒 Opening Custom Report Modal (create) - using existing sales data only, no API calls should occur. Sales data count:', salesData.length);
+                setEditingReport(null);
                 setShowCustomReportModal(true);
               }}
               disabled={salesData.length === 0}
@@ -1596,8 +2048,7 @@ const CustomReports = () => {
                   position: 'relative',
                   boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
                   overflow: 'hidden',
-                  height: '60px',
-                  minHeight: '20px'
+                  minHeight: '72px'
                 }}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.background = 'linear-gradient(135deg, #ffffff 0%, #f0f9ff 100%)';
@@ -1672,15 +2123,139 @@ const CustomReports = () => {
                           <strong>{report.filters.length}</strong> filter{report.filters.length !== 1 ? 's' : ''}
                         </div>
                       )}
+                      {report.savedPivots && report.savedPivots.length > 0 && (
+                        <div style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '6px',
+                          padding: '8px 10px',
+                          background: '#ecfeff',
+                          borderRadius: '8px',
+                          fontSize: '13px',
+                          color: '#0f766e',
+                          maxWidth: '100%'
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span className="material-icons" style={{ fontSize: '16px', color: '#0f766e' }}>pivot_table_chart</span>
+                            <span>Pivot views</span>
+                          </div>
+                          <div style={{
+                            display: 'flex',
+                            flexWrap: 'wrap',
+                            gap: '8px',
+                            marginTop: '4px'
+                          }}>
+                            {report.savedPivots.map(pivot => (
+                              <div
+                                key={pivot.id}
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'space-between',
+                                  background: '#ffffff',
+                                  border: '1px solid #bae6fd',
+                                  borderRadius: '8px',
+                                  padding: '4px 8px',
+                                  minWidth: '140px',
+                                  maxWidth: '220px',
+                                  boxShadow: '0 1px 2px rgba(15, 23, 42, 0.08)'
+                                }}
+                              >
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleOpenReport(report, pivot);
+                                  }}
+                                  style={{
+                                    border: 'none',
+                                    background: 'transparent',
+                                    padding: 0,
+                                    cursor: 'pointer',
+                                    fontSize: '12px',
+                                    color: '#0f766e',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    flex: 1,
+                                    textAlign: 'left'
+                                  }}
+                                  title={`Open pivot view: ${pivot.name}`}
+                                >
+                                  <span className="material-icons" style={{ fontSize: '14px' }}>table_view</span>
+                                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    {pivot.name}
+                                  </span>
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeletePivotView(report, pivot.id);
+                                  }}
+                                  style={{
+                                    border: 'none',
+                                    background: 'transparent',
+                                    padding: '0 2px',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    color: '#ef4444'
+                                  }}
+                                  title="Delete this pivot view"
+                                >
+                                  <span className="material-icons" style={{ fontSize: '14px' }}>close</span>
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  </div>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  {/* Edit Report Button */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setEditingReport(report);
+                      setShowCustomReportModal(true);
+                    }}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      cursor: 'pointer',
+                      padding: '4px',
+                      borderRadius: '8px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: '#0f766e',
+                      transition: 'all 0.2s ease',
+                      flexShrink: 0,
+                      width: '32px',
+                      height: '32px'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.stopPropagation();
+                      e.currentTarget.style.background = '#ecfeff';
+                      e.currentTarget.style.transform = 'scale(1.08)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.stopPropagation();
+                      e.currentTarget.style.background = 'transparent';
+                      e.currentTarget.style.transform = 'scale(1)';
+                    }}
+                    title="Edit report"
+                  >
+                    <span className="material-icons" style={{ fontSize: '20px' }}>edit</span>
+                  </button>
+                  {/* Delete Report Button */}
                   <button
                     onClick={(e) => handleDeleteReport(report.id, e)}
                     style={{
                       background: 'transparent',
                       border: 'none',
                       cursor: 'pointer',
-                      padding: '8px',
+                      padding: '4px',
                       borderRadius: '8px',
                       display: 'flex',
                       alignItems: 'center',
@@ -1688,13 +2263,13 @@ const CustomReports = () => {
                       color: '#ef4444',
                       transition: 'all 0.2s ease',
                       flexShrink: 0,
-                      width: '36px',
-                      height: '36px'
+                      width: '32px',
+                      height: '32px'
                     }}
                     onMouseEnter={(e) => {
                       e.stopPropagation();
                       e.currentTarget.style.background = '#fee2e2';
-                      e.currentTarget.style.transform = 'scale(1.1)';
+                      e.currentTarget.style.transform = 'scale(1.08)';
                     }}
                     onMouseLeave={(e) => {
                       e.stopPropagation();
@@ -1703,8 +2278,9 @@ const CustomReports = () => {
                     }}
                     title="Delete report"
                   >
-                    <span className="material-icons" style={{ fontSize: '22px' }}>delete_outline</span>
+                    <span className="material-icons" style={{ fontSize: '20px' }}>delete_outline</span>
                   </button>
+                </div>
                 </div>
                 
                 <div style={{
@@ -1822,6 +2398,80 @@ const CustomReports = () => {
                 </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                {/* Edit Report button (inside modal) */}
+                <button
+                  onClick={() => {
+                    if (selectedReport) {
+                      setEditingReport(selectedReport);
+                      setShowReportModal(false);
+                      // Don't reset pivot config - it's saved with the report
+                      setPivotTableData(null);
+                      setShowCustomReportModal(true);
+                    }
+                  }}
+                  style={{
+                    background: 'transparent',
+                    border: '2px solid #e2e8f0',
+                    borderRadius: '8px',
+                    padding: '8px 14px',
+                    cursor: 'pointer',
+                    color: '#0f766e',
+                    fontSize: '13px',
+                    fontWeight: '500',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    transition: 'all 0.2s ease'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = '#ecfeff';
+                    e.currentTarget.style.borderColor = '#0f766e';
+                    e.currentTarget.style.color = '#0f766e';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'transparent';
+                    e.currentTarget.style.borderColor = '#e2e8f0';
+                    e.currentTarget.style.color = '#0f766e';
+                  }}
+                  title="Edit this report"
+                >
+                  <span className="material-icons" style={{ fontSize: '18px' }}>edit</span>
+                  Edit
+                </button>
+                {/* Save Pivot View button (only when pivot table is active) */}
+                {isPivotMode && pivotTableData && (
+                  <button
+                    onClick={handleSaveCurrentPivotView}
+                    style={{
+                      background: 'white',
+                      border: '2px solid #22c55e',
+                      borderRadius: '8px',
+                      padding: '8px 14px',
+                      cursor: 'pointer',
+                      color: '#15803d',
+                      fontSize: '13px',
+                      fontWeight: '500',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      transition: 'all 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = '#dcfce7';
+                      e.currentTarget.style.borderColor = '#16a34a';
+                      e.currentTarget.style.color = '#166534';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'white';
+                      e.currentTarget.style.borderColor = '#22c55e';
+                      e.currentTarget.style.color = '#15803d';
+                    }}
+                    title="Save this pivot view"
+                  >
+                    <span className="material-icons" style={{ fontSize: '18px' }}>save</span>
+                    Save Pivot View
+                  </button>
+                )}
                 <button
                   onClick={() => {
                     if (isPivotMode && pivotTableData) {
@@ -1847,7 +2497,14 @@ const CustomReports = () => {
                       };
                       
                       const splitKey = (key) => {
-                        return key === 'Total' ? ['Total'] : key.split('|');
+                        if (key === 'Total') return ['Total'];
+                        try {
+                          const parsed = JSON.parse(key);
+                          return Array.isArray(parsed) ? parsed : [String(parsed)];
+                        } catch (e) {
+                          // Fallback for any legacy/plain keys
+                          return String(key).split('|');
+                        }
                       };
                       
                       // Build pivot table data array
@@ -2080,26 +2737,9 @@ const CustomReports = () => {
                     const shouldBePivotMode = newConfig.values.length > 0 && (newConfig.rows.length > 0 || newConfig.columns.length > 0);
                     setIsPivotMode(shouldBePivotMode);
                     
-                    // Save pivot config to report
+                    // Save pivot config to report via API
                     if (selectedReport) {
-                      try {
-                        const existingReports = JSON.parse(localStorage.getItem('customReports') || '[]');
-                        const updatedReports = existingReports.map(r => {
-                          if (r.id === selectedReport.id) {
-                            return {
-                              ...r,
-                              pivotConfig: newConfig,
-                              isPivotMode: shouldBePivotMode,
-                              showPivotFieldsPanel: showPivotFieldsPanel
-                            };
-                          }
-                          return r;
-                        });
-                        localStorage.setItem('customReports', JSON.stringify(updatedReports));
-                        setSelectedReport(prev => prev ? { ...prev, pivotConfig: newConfig, isPivotMode: shouldBePivotMode } : null);
-                      } catch (error) {
-                        console.error('Error saving pivot config:', error);
-                      }
+                      savePivotConfigToReport(newConfig);
                     }
                   }}
                   onFieldConfig={(field, area, index) => {
@@ -2107,6 +2747,7 @@ const CustomReports = () => {
                   }}
                   getFieldLabel={getFieldLabel}
                   getFieldType={getFieldType}
+                  onClose={() => setShowPivotFieldsPanel(false)}
                 />
               )}
 
@@ -2117,26 +2758,9 @@ const CustomReports = () => {
                   pivotConfig={pivotConfig}
                   setPivotConfig={(newConfig) => {
                     setPivotConfig(newConfig);
-                    // Save pivot config to report
+                    // Save pivot config to report via API
                     if (selectedReport) {
-                      try {
-                        const existingReports = JSON.parse(localStorage.getItem('customReports') || '[]');
-                        const updatedReports = existingReports.map(r => {
-                          if (r.id === selectedReport.id) {
-                            return {
-                              ...r,
-                              pivotConfig: newConfig,
-                              isPivotMode: isPivotMode,
-                              showPivotFieldsPanel: showPivotFieldsPanel
-                            };
-                          }
-                          return r;
-                        });
-                        localStorage.setItem('customReports', JSON.stringify(updatedReports));
-                        setSelectedReport(prev => prev ? { ...prev, pivotConfig: newConfig } : null);
-                      } catch (error) {
-                        console.error('Error saving pivot config:', error);
-                      }
+                      savePivotConfigToReport(newConfig);
                     }
                   }}
                   onClose={() => setFieldConfigModal(null)}
@@ -2338,6 +2962,7 @@ const CustomReports = () => {
                   }}
                   getFieldLabel={getFieldLabel}
                   getFieldType={getFieldType}
+                  onClose={() => setShowPivotFieldsPanel(false)}
                 />
               )}
 
@@ -2357,20 +2982,48 @@ const CustomReports = () => {
                     View Mode:
                   </span>
                   <button
-                    onClick={() => {
+                    onClick={async () => {
                       setIsPivotMode(false);
-                      // Save state to report
+                      // Save state to report via API
                       if (selectedReport) {
                         try {
-                          const existingReports = JSON.parse(localStorage.getItem('customReports') || '[]');
-                          const updatedReports = existingReports.map(r => {
-                            if (r.id === selectedReport.id) {
-                              return { ...r, isPivotMode: false };
-                            }
-                            return r;
-                          });
-                          localStorage.setItem('customReports', JSON.stringify(updatedReports));
-                          setSelectedReport(prev => prev ? { ...prev, isPivotMode: false } : null);
+                          const currentCompanyObj = getCurrentCompany();
+                          if (currentCompanyObj) {
+                            // Find first numeric field for valueField (required by API)
+                            const fieldsArray = selectedReport.fields || [];
+                            const numericFields = ['amount', 'value', 'quantity', 'qty', 'rate', 'price', 'total'];
+                            const defaultValueField = fieldsArray.find(f => 
+                              numericFields.some(nf => f.toLowerCase().includes(nf))
+                            ) || fieldsArray[0] || 'amount';
+                            
+                            const updatePayload = {
+                              tallylocId: currentCompanyObj.tallyloc_id,
+                              coGuid: currentCompanyObj.guid,
+                              dashboardType: 'custom-reports',
+                              title: selectedReport.title,
+                              chartType: 'table',
+                              // Required fields by API
+                              valueField: defaultValueField,
+                              aggregation: 'sum',
+                              groupBy: null,
+                              topN: null,
+                              filters: [],
+                              sortOrder: 0,
+                              cardConfig: {
+                                fields: fieldsArray,
+                                filters: selectedReport.filters || [],
+                                relationships: selectedReport.relationships || [],
+                                sortIndexes: selectedReport.sortIndexes || {},
+                                pivotConfig: selectedReport.pivotConfig || null,
+                                isPivotMode: false
+                              }
+                            };
+                            await apiPut(API_CONFIG.ENDPOINTS.CUSTOM_CARD_UPDATE(selectedReport.id), updatePayload);
+                            setSelectedReport(prev => prev ? { ...prev, isPivotMode: false } : null);
+                            setReports(prev => prev.map(r => 
+                              r.id === selectedReport.id ? { ...r, isPivotMode: false } : r
+                            ));
+                          }
                         } catch (error) {
                           console.error('Error saving pivot mode:', error);
                         }
@@ -2391,21 +3044,49 @@ const CustomReports = () => {
                     Table
                   </button>
                   <button
-                    onClick={() => {
+                    onClick={async () => {
                       if (pivotConfig.rows.length > 0 || pivotConfig.columns.length > 0) {
                         setIsPivotMode(true);
-                        // Save state to report
+                        // Save state to report via API
                         if (selectedReport) {
                           try {
-                            const existingReports = JSON.parse(localStorage.getItem('customReports') || '[]');
-                            const updatedReports = existingReports.map(r => {
-                              if (r.id === selectedReport.id) {
-                                return { ...r, isPivotMode: true };
-                              }
-                              return r;
-                            });
-                            localStorage.setItem('customReports', JSON.stringify(updatedReports));
-                            setSelectedReport(prev => prev ? { ...prev, isPivotMode: true } : null);
+                            const currentCompanyObj = getCurrentCompany();
+                            if (currentCompanyObj) {
+                              // Find first numeric field for valueField (required by API)
+                              const fieldsArray = selectedReport.fields || [];
+                              const numericFields = ['amount', 'value', 'quantity', 'qty', 'rate', 'price', 'total'];
+                              const defaultValueField = fieldsArray.find(f => 
+                                numericFields.some(nf => f.toLowerCase().includes(nf))
+                              ) || fieldsArray[0] || 'amount';
+                              
+                              const updatePayload = {
+                                tallylocId: currentCompanyObj.tallyloc_id,
+                                coGuid: currentCompanyObj.guid,
+                                dashboardType: 'custom-reports',
+                                title: selectedReport.title,
+                                chartType: 'table',
+                                // Required fields by API
+                                valueField: defaultValueField,
+                                aggregation: 'sum',
+                                groupBy: null,
+                                topN: null,
+                                filters: [],
+                                sortOrder: 0,
+                                cardConfig: {
+                                  fields: fieldsArray,
+                                  filters: selectedReport.filters || [],
+                                  relationships: selectedReport.relationships || [],
+                                  sortIndexes: selectedReport.sortIndexes || {},
+                                  pivotConfig: selectedReport.pivotConfig || null,
+                                  isPivotMode: true
+                                }
+                              };
+                              await apiPut(API_CONFIG.ENDPOINTS.CUSTOM_CARD_UPDATE(selectedReport.id), updatePayload);
+                              setSelectedReport(prev => prev ? { ...prev, isPivotMode: true } : null);
+                              setReports(prev => prev.map(r => 
+                                r.id === selectedReport.id ? { ...r, isPivotMode: true } : r
+                              ));
+                            }
                           } catch (error) {
                             console.error('Error saving pivot mode:', error);
                           }
@@ -2790,9 +3471,11 @@ const CustomReports = () => {
         >
           <CustomReportModal
             salesData={salesData}
+            initialReport={editingReport}
             onClose={() => {
               console.log('🔒 Custom Report Modal closed');
               setShowCustomReportModal(false);
+              setEditingReport(null);
               // Refresh reports list after closing modal
               loadReports();
             }}
@@ -2804,7 +3487,16 @@ const CustomReports = () => {
 };
 
 // HierarchicalFieldList Component
-const HierarchicalFieldList = ({ fields, selectedFields, onFieldToggle, searchTerm, selectionMode = 'multiple' }) => {
+const HierarchicalFieldList = ({
+  fields,
+  selectedFields,
+  onFieldToggle,
+  searchTerm,
+  selectionMode = 'multiple',
+  showAggregationDropdown = false,
+  fieldAggregations,
+  onAggregationChange
+}) => {
   const [expandedGroups, setExpandedGroups] = useState(() => {
     const groups = new Set();
     fields.forEach(f => {
@@ -2829,6 +3521,8 @@ const HierarchicalFieldList = ({ fields, selectedFields, onFieldToggle, searchTe
   
   const groupedFields = useMemo(() => {
     const groups = {};
+    
+    // First, group fields by hierarchy
     fields.forEach(field => {
       const hierarchy = field.hierarchy || 'voucher';
       if (!groups[hierarchy]) {
@@ -2840,6 +3534,49 @@ const HierarchicalFieldList = ({ fields, selectedFields, onFieldToggle, searchTe
       }
       groups[hierarchy].fields.push(field);
     });
+
+    // For hierarchical groups (like inventory entries, ledger entries, etc.),
+    // de-duplicate fields that represent the same underlying field but come
+    // from both flattened top-level fields and nested paths.
+    const hierarchicalGroups = [
+      'ledgerentries',
+      'billallocations',
+      'allinventoryentries',
+      'batchallocation',
+      'accountingallocation'
+    ];
+
+    hierarchicalGroups.forEach(level => {
+      const group = groups[level];
+      if (group && Array.isArray(group.fields) && group.fields.length > 0) {
+        const dedupMap = new Map();
+
+        group.fields.forEach(field => {
+          // Use the last segment of the path (after the last dot) as the base key
+          const parts = (field.value || '').split('.');
+          const baseKey = (parts[parts.length - 1] || '').toLowerCase();
+          if (!baseKey) {
+            return;
+          }
+
+          const existing = dedupMap.get(baseKey);
+          if (!existing) {
+            dedupMap.set(baseKey, field);
+          } else {
+            const existingIsNested = existing.value && existing.value.includes('.');
+            const currentIsNested = field.value && field.value.includes('.');
+            // Prefer non-nested value (e.g., "stockitemname") over nested ("allinventoryentries.stockitemname")
+            // so labels like "Stock Item Name" are shown only once.
+            if (existingIsNested && !currentIsNested) {
+              dedupMap.set(baseKey, field);
+            }
+          }
+        });
+
+        group.fields = Array.from(dedupMap.values());
+      }
+    });
+
     return groups;
   }, [fields]);
   
@@ -2984,9 +3721,11 @@ const HierarchicalFieldList = ({ fields, selectedFields, onFieldToggle, searchTe
             {isExpanded && (
               <div style={{ paddingLeft: '8px', marginTop: '4px' }}>
                 {group.fields.map((field) => {
-                  const isNested = field.value.includes('.');
-                  const indentLevel = field.value.split('.').length - 1;
-                  
+                  // Determine current aggregation for value fields if dropdown is enabled
+                  const currentAggregation = showAggregationDropdown && field.type === 'value'
+                    ? (fieldAggregations?.get(field.value) || field.aggregation || 'sum')
+                    : null;
+
                   return (
                     <div
                       key={field.value}
@@ -2994,7 +3733,7 @@ const HierarchicalFieldList = ({ fields, selectedFields, onFieldToggle, searchTe
                         display: 'flex',
                         alignItems: 'center',
                         padding: '8px 12px',
-                        paddingLeft: `${12 + (indentLevel * 16)}px`,
+                        paddingLeft: '12px',
                         borderRadius: '4px',
                         cursor: 'pointer',
                         transition: 'background 0.15s ease',
@@ -3013,15 +3752,6 @@ const HierarchicalFieldList = ({ fields, selectedFields, onFieldToggle, searchTe
                       }}
                       onClick={() => handleFieldClick(field.value)}
                     >
-                      {isNested && (
-                        <span className="material-icons" style={{
-                          fontSize: '14px',
-                          color: '#94a3b8',
-                          marginRight: '6px'
-                        }}>
-                          subdirectory_arrow_right
-                        </span>
-                      )}
                       {selectionMode === 'single' ? (
                         <div style={{
                           width: '18px',
@@ -3083,18 +3813,55 @@ const HierarchicalFieldList = ({ fields, selectedFields, onFieldToggle, searchTe
                           UDF
                         </span>
                       )}
-                      {field.type === 'value' && (
+                      {field.type === 'value' && !showAggregationDropdown && !selectedFields.has(field.value) && (
                         <span style={{
                           fontSize: '10px',
                           color: '#3b82f6',
                           background: '#dbeafe',
                           padding: '2px 6px',
                           borderRadius: '4px',
-                          marginLeft: '8px',
+                          marginLeft: 'auto',
                           fontWeight: 500
                         }}>
                           {field.aggregation || 'sum'}
                         </span>
+                      )}
+
+                      {field.type === 'value' && showAggregationDropdown && selectedFields.has(field.value) && (
+                        <select
+                          value={currentAggregation}
+                          onChange={(e) => {
+                            e.stopPropagation();
+                            onAggregationChange && onAggregationChange(field.value, e.target.value);
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          style={{
+                            padding: '4px 8px',
+                            border: '1px solid #cbd5e1',
+                            borderRadius: '6px',
+                            fontSize: '11px',
+                            color: '#1e293b',
+                            background: '#ffffff',
+                            cursor: 'pointer',
+                            outline: 'none',
+                            minWidth: '90px',
+                            marginLeft: 'auto'
+                          }}
+                          onFocus={(e) => {
+                            e.target.style.borderColor = '#3b82f6';
+                            e.target.style.boxShadow = '0 0 0 2px rgba(59, 130, 246, 0.1)';
+                          }}
+                          onBlur={(e) => {
+                            e.target.style.borderColor = '#cbd5e1';
+                            e.target.style.boxShadow = 'none';
+                          }}
+                        >
+                          <option value="sum">Sum</option>
+                          <option value="average">Average</option>
+                          <option value="count">Count</option>
+                          <option value="min">Min</option>
+                          <option value="max">Max</option>
+                        </select>
                       )}
                     </div>
                   );
@@ -3109,7 +3876,7 @@ const HierarchicalFieldList = ({ fields, selectedFields, onFieldToggle, searchTe
 };
 
 // Custom Report Modal Component
-const CustomReportModal = ({ salesData, onClose }) => {
+const CustomReportModal = ({ salesData, onClose, initialReport = null }) => {
   const [reportTitle, setReportTitle] = useState('');
   const [selectedFields, setSelectedFields] = useState(new Set());
   const [searchTerm, setSearchTerm] = useState('');
@@ -3124,6 +3891,32 @@ const CustomReportModal = ({ salesData, onClose }) => {
   const [stockItemData, setStockItemData] = useState([]);
   const [relationships, setRelationships] = useState([]);
   const [showRelationships, setShowRelationships] = useState(false);
+  const [fieldAggregations, setFieldAggregations] = useState(new Map()); // Map<fieldName, aggregation>
+
+  // Prefill state when editing an existing report
+  useEffect(() => {
+    if (initialReport) {
+      setReportTitle(initialReport.title || '');
+      setSelectedFields(new Set(initialReport.fields || []));
+      setFilters(initialReport.filters || []);
+      setRelationships(initialReport.relationships || []);
+
+      // Initialize field aggregations from existing report (if present) or default to 'sum'
+      const aggMap = new Map();
+      const existingAggs = initialReport.fieldAggregations || {};
+      (initialReport.fields || []).forEach(field => {
+        aggMap.set(field, existingAggs[field] || 'sum');
+      });
+      setFieldAggregations(aggMap);
+    } else {
+      // Fresh create mode: clear form
+      setReportTitle('');
+      setSelectedFields(new Set());
+      setFilters([]);
+      setRelationships([]);
+      setFieldAggregations(new Map());
+    }
+  }, [initialReport]);
 
   // Cleanup relationships on unmount
   useEffect(() => {
@@ -3382,6 +4175,39 @@ const CustomReportModal = ({ salesData, onClose }) => {
   // Extract all available fields from all cache tables
   const allFields = useMemo(() => {
     const fieldsMap = new Map();
+    const fieldsOrder = []; // Track insertion order to preserve cache order
+    
+    // Define fields that should ALWAYS be categories (even if they contain numbers)
+    // This needs to be at the top level so it's accessible throughout the useMemo
+    const forceCategoryFields = [
+      // Date fields - ALWAYS categories, never values
+      'date', 'cp_date', 'cpdate', 'cp date', 'transaction_date', 'transactiondate',
+      'voucher_date', 'voucherdate', 'bill_date', 'billdate', 'invoice_date', 'invoicedate',
+      // Location fields
+      'pincode', 'pin_code', 'pin', 'zipcode', 'zip',
+      // Voucher/ID fields
+      'vouchernumber', 'vchno', 'voucher_number', 'voucher_no',
+      'masterid', 'master_id', 'alterid', 'alter_id',
+      'partyledgernameid', 'partyid', 'party_id', 'stockitemnameid', 'itemid', 'item_id',
+      'ledgernameid', 'ledgerid', 'ledger_name_id',
+      'partygstin', 'gstin', 'gst_no', 'gstno', 'pan', 'pan_no',
+      // Period/Credit fields
+      'billcreditperiod', 'creditperiod', 'bill_credit_period',
+      // Contact fields
+      'phone', 'mobile', 'telephone', 'contact', 'ledgermobile',
+      // Reference fields
+      'reference', 'ref_no', 'invoice_no', 'bill_no',
+      // Address fields
+      'address', 'basicbuyeraddress', 'buyer_address',
+      // Name fields (should always be categories)
+      'name', 'ledgername', 'stockitemname', 'partyname', 'customername',
+      // Code fields (should always be categories)
+      'code', 'hsncode', 'hsn_code', 'itemcode', 'item_code',
+      // Other category fields
+      'reservedname', 'vchtype', 'vouchertypename', 'voucher_type',
+      'issales', 'is_sales'
+    ];
+    
     const fieldLabelMap = {
       'partyledgername': 'Party Ledger Name',
       'customer': 'Customer',
@@ -3431,29 +4257,56 @@ const CustomReportModal = ({ salesData, onClose }) => {
     if (dataForExtraction && Array.isArray(dataForExtraction) && dataForExtraction.length > 0) {
       // Extract hierarchical fields from nested structure (rawVoucherData)
       // This processes all nested arrays: allinventoryentries, ledgerentries, billallocations, etc.
+      // We use this to get field metadata (type, hierarchy) but NOT for ordering
       const extracted = extractAllFieldsFromCache(dataForExtraction);
-      const cacheFields = extracted.fields || [];
+      const cacheFieldsMetadata = new Map(); // Map to store field metadata by key
+      (extracted.fields || []).forEach(field => {
+        cacheFieldsMetadata.set(field.value.toLowerCase(), field);
+      });
       
       // Get ALL unique keys from ALL records to ensure we capture every field
       // Use rawVoucherData (full period data) if available, otherwise fall back to salesData (current period)
+      // IMPORTANT: Preserve the order keys appear in the cache data (use first record's key order as reference)
       const allKeysSet = new Set();
+      const allKeys = []; // Array to preserve order
       
-      // First, extract keys from rawVoucherData (all periods) if available
+      // Determine the primary data source and use its first record to establish key order
+      const primaryData = rawVoucherData.length > 0 ? rawVoucherData : (salesData || []);
+      
+      // First, use the first record's key order as the reference order
+      if (primaryData && primaryData.length > 0) {
+        const firstRecord = primaryData[0];
+        const firstRecordKeys = Object.keys(firstRecord);
+        firstRecordKeys.forEach(key => {
+          allKeysSet.add(key);
+          allKeys.push(key); // Add in order from first record
+        });
+      }
+      
+      // Then, iterate through all records to find any additional keys not in the first record
+      // Add them at the end to preserve the first record's order as primary
       if (rawVoucherData && rawVoucherData.length > 0) {
         rawVoucherData.forEach(voucher => {
-          Object.keys(voucher).forEach(key => allKeysSet.add(key));
+          Object.keys(voucher).forEach(key => {
+            if (!allKeysSet.has(key)) {
+              allKeysSet.add(key);
+              allKeys.push(key); // Add missing keys at the end
+            }
+          });
         });
       }
       
-      // Also extract keys from salesData (current period) to ensure we have all fields
-      // This acts as a fallback and also ensures we capture any fields that might be in the flattened format
+      // Also check salesData for any additional keys
       if (salesData && Array.isArray(salesData)) {
         salesData.forEach(sale => {
-          Object.keys(sale).forEach(key => allKeysSet.add(key));
+          Object.keys(sale).forEach(key => {
+            if (!allKeysSet.has(key)) {
+              allKeysSet.add(key);
+              allKeys.push(key); // Add missing keys at the end
+            }
+          });
         });
       }
-      
-      const allKeys = Array.from(allKeysSet);
       
       // Determine field types by checking all records
       // Use rawVoucherData (full period) if available, otherwise use salesData
@@ -3483,112 +4336,194 @@ const CustomReportModal = ({ salesData, onClose }) => {
         });
       });
       
-      // Define fields that should ALWAYS be categories (even if they contain numbers)
-      const forceCategoryFields = [
-        // Date fields - ALWAYS categories, never values
-        'date', 'cp_date', 'cpdate', 'cp date', 'transaction_date', 'transactiondate',
-        'voucher_date', 'voucherdate', 'bill_date', 'billdate', 'invoice_date', 'invoicedate',
-        // Location fields
-        'pincode', 'pin_code', 'pin', 'zipcode', 'zip',
-        // Voucher/ID fields
-        'vouchernumber', 'vchno', 'voucher_number', 'voucher_no',
-        'masterid', 'master_id', 'alterid', 'alter_id',
-        'partyledgernameid', 'partyid', 'party_id', 'stockitemnameid', 'itemid', 'item_id',
-        'partygstin', 'gstin', 'gst_no', 'pan', 'pan_no',
-        // Contact fields
-        'phone', 'mobile', 'telephone', 'contact',
-        // Reference fields
-        'reference', 'ref_no', 'invoice_no', 'bill_no',
-        // Address fields
-        'address', 'basicbuyeraddress', 'buyer_address',
-        // Other category fields
-        'reservedname', 'vchtype', 'vouchertypename', 'voucher_type',
-        'issales', 'is_sales'
-      ];
+      // NOW: Process each field from allKeys in cache order
+      // Use metadata from extractAllFieldsFromCache if available, otherwise create field object
+      // This preserves the cache order while still getting proper field types and hierarchy
       
-      // Process each field from the sales data (top-level fields only)
-      // This matches SalesDashboard's approach - process top-level first, then hierarchical
+      // Fields that are array containers (hierarchy identifiers) - should not be displayed as selectable fields
+      const knownArrayFields = ['ledgerentries', 'allledgerentries', 'allinventoryentries', 
+                                'inventoryentries', 'billallocations', 'batchallocation', 
+                                'accountingallocation', 'address'];
+      
       allKeys.forEach(key => {
         const lowerKey = key.toLowerCase();
         
-        // Skip if we've already added this field as a hierarchical field
+        // Skip array/hierarchy container fields - these are not selectable fields, only group identifiers
+        if (knownArrayFields.includes(lowerKey)) {
+          return; // Skip - this is a container field, not a selectable field
+        }
+        
+        // Skip if we've already added this field
         if (fieldsMap.has(lowerKey)) {
-          const existing = fieldsMap.get(lowerKey);
-          // If existing field is hierarchical (not voucher level), skip adding top-level version
-          if (existing.hierarchy && existing.hierarchy !== 'voucher') {
-            return; // Skip - hierarchical field already exists
+          return; // Already added
+        }
+        
+        // Get metadata from extractAllFieldsFromCache if available
+        // Use let because we may override metadata properties (e.g. force type to 'category')
+        let metadata = cacheFieldsMetadata.get(lowerKey);
+        
+        if (metadata) {
+          // Skip if metadata is for an array container field (shouldn't happen, but be safe)
+          if (knownArrayFields.includes(lowerKey)) {
+            return; // Skip - this is a container field
           }
-        }
-        
-        // Check if this is a date field variation - if so, skip it (we'll handle dates separately)
-        const dateFieldVariations = ['cp_date', 'cpdate', 'date', 'transaction_date', 'transactiondate', 
-                                      'voucher_date', 'voucherdate', 'bill_date', 'billdate'];
-        const isDateField = dateFieldVariations.some(dv => lowerKey === dv) || 
-                            (lowerKey === 'date' || lowerKey === 'cp_date' || 
-                             (lowerKey.endsWith('_date') && !lowerKey.includes('updated') && 
-                              !lowerKey.includes('created') && !lowerKey.includes('modified')));
-        if (isDateField && fieldsMap.has('date')) {
-          return; // Skip - we already have the consolidated "date" field
-        }
-        
-        // Check if field should be forced to category
-        const shouldBeCategory = forceCategoryFields.some(cat => 
-          lowerKey === cat || lowerKey.includes(cat) || cat.includes(lowerKey)
-        );
-        
-        // Determine if field is numeric based on type analysis (but respect forced categories)
-        const isNumeric = !shouldBeCategory && fieldTypes[key] === 'numeric';
-        
-        // Determine default aggregation for numeric fields
-        let defaultAggregation = 'sum';
-        if (isNumeric) {
-          // Rate, price, margin fields should default to average
-          if (lowerKey.includes('rate') || lowerKey.includes('price') || 
-              lowerKey.includes('margin') || lowerKey.includes('percent')) {
-            defaultAggregation = 'average';
-          }
-        }
-        
-        // Use getHierarchyLevel to determine proper hierarchy for top-level fields
-        // This correctly identifies flattened inventory fields, ledger fields, etc.
-        const fieldHierarchy = getHierarchyLevel(key);
-        
-        // Create field entry - include ALL fields regardless of type
-        // Mark with proper hierarchy (not just 'voucher')
-        const field = {
-          value: key,
-          label: getFieldLabel(key),
-          type: isNumeric ? 'value' : 'category',
-          hierarchy: fieldHierarchy, // Use proper hierarchy detection
-          ...(isNumeric && { aggregation: defaultAggregation }) // Add default aggregation for numeric fields
-        };
-        
-        fieldsMap.set(lowerKey, field);
-      });
-      
-      // Add cache fields from hierarchical extractor (from nested structure)
-      // This ensures hierarchical fields take precedence and are not overwritten
-      // These fields come from nested arrays like allinventoryentries.stockitemname
-      // This matches SalesDashboard's approach - hierarchical fields override top-level
-      cacheFields.forEach(field => {
-        const key = field.value.toLowerCase();
-        // Always add hierarchical fields - they take precedence over top-level fields
-        // Hierarchical fields have hierarchy property set, top-level don't
-        if (field.hierarchy && field.hierarchy !== 'voucher') {
-          // This is a nested field - always add it (overwrites top-level if exists)
-          fieldsMap.set(key, field);
-        } else if (!fieldsMap.has(key)) {
-          // Top-level field from cache extractor - only add if not already present
-          fieldsMap.set(key, field);
-        } else {
-          // Check if existing field is hierarchical - if not, replace with hierarchical version
-          const existing = fieldsMap.get(key);
-          if (!existing.hierarchy || existing.hierarchy === 'voucher') {
-            // Existing is top-level, replace with hierarchical if available
-            if (field.hierarchy) {
-              fieldsMap.set(key, field);
+          // Double-check: if metadata says it's a value field but the field name suggests it should be category
+          // (e.g., ID fields, codes, names that might have numeric values but shouldn't be aggregated)
+          // BUT: Don't override if it's a known numeric field (quantity, amount, profit, cost, expense, qty, etc.)
+          const isKnownNumericField = lowerKey.includes('quantity') || lowerKey.includes('qty') || 
+                                      lowerKey.includes('amount') || lowerKey.includes('profit') || 
+                                      lowerKey.includes('cost') || lowerKey.includes('expense') ||
+                                      lowerKey.includes('price') || lowerKey.includes('rate') ||
+                                      lowerKey.includes('total') || lowerKey.includes('sum') ||
+                                      lowerKey.includes('discount') || lowerKey.includes('tax');
+          
+          if (!isKnownNumericField) {
+            const normalizedFieldKey = lowerKey.replace(/[_\s]/g, '');
+            const shouldBeCategory = forceCategoryFields.some(cat => {
+              const normalizedCat = cat.replace(/[_\s]/g, '');
+              return normalizedFieldKey === normalizedCat || 
+                     normalizedFieldKey.includes(normalizedCat) || 
+                     normalizedCat.includes(normalizedFieldKey) ||
+                     (lowerKey.includes('id') && (lowerKey.endsWith('id') || lowerKey.includes('nameid'))) ||
+                     lowerKey.includes('name') || 
+                     lowerKey.includes('code') || 
+                     lowerKey.includes('mobile') || 
+                     lowerKey.includes('gst') || 
+                     lowerKey.includes('period');
+            });
+            
+            // Override type if field name suggests it should be category (but not for known numeric fields)
+            if (shouldBeCategory && metadata.type === 'value') {
+              metadata = { ...metadata, type: 'category' };
             }
           }
+          
+          const finalMetadata = metadata;
+          
+          fieldsMap.set(lowerKey, finalMetadata);
+          fieldsOrder.push(lowerKey);
+        } else {
+          // Create field object for fields not in metadata (shouldn't happen often, but handle it)
+          // Check if this is a date field variation - if so, skip it (we'll handle dates separately)
+          const dateFieldVariations = ['cp_date', 'cpdate', 'date', 'transaction_date', 'transactiondate', 
+                                        'voucher_date', 'voucherdate', 'bill_date', 'billdate'];
+          const isDateField = dateFieldVariations.some(dv => lowerKey === dv) || 
+                              (lowerKey === 'date' || lowerKey === 'cp_date' || 
+                               (lowerKey.endsWith('_date') && !lowerKey.includes('updated') && 
+                                !lowerKey.includes('created') && !lowerKey.includes('modified')));
+          if (isDateField && fieldsMap.has('date')) {
+            return; // Skip - we already have the consolidated "date" field
+          }
+          
+          // Check if field should be forced to category
+          // BUT: Don't force known numeric fields (quantity, amount, profit, cost, expense, qty, etc.) to category
+          const isKnownNumericField = lowerKey.includes('quantity') || lowerKey.includes('qty') || 
+                                      lowerKey.includes('amount') || lowerKey.includes('profit') || 
+                                      lowerKey.includes('cost') || lowerKey.includes('expense') ||
+                                      lowerKey.includes('price') || lowerKey.includes('rate') ||
+                                      lowerKey.includes('total') || lowerKey.includes('sum') ||
+                                      lowerKey.includes('discount') || lowerKey.includes('tax');
+          
+          let shouldBeCategory = false;
+          if (!isKnownNumericField) {
+            // Normalize both field name and category patterns (remove spaces/underscores) for better matching
+            const normalizedFieldKey = lowerKey.replace(/[_\s]/g, '');
+            shouldBeCategory = forceCategoryFields.some(cat => {
+              const normalizedCat = cat.replace(/[_\s]/g, '');
+              return normalizedFieldKey === normalizedCat || 
+                     normalizedFieldKey.includes(normalizedCat) || 
+                     normalizedCat.includes(normalizedFieldKey) ||
+                     // Also check for common patterns
+                     (lowerKey.includes('id') && (lowerKey.endsWith('id') || lowerKey.includes('nameid'))) ||
+                     lowerKey.includes('name') || 
+                     lowerKey.includes('code') || 
+                     lowerKey.includes('mobile') || 
+                     lowerKey.includes('gst') || 
+                     lowerKey.includes('period');
+            });
+          }
+          
+          // Determine if field is numeric based on type analysis (but respect forced categories)
+          const isNumeric = !shouldBeCategory && fieldTypes[key] === 'numeric';
+          
+          // Determine default aggregation for numeric fields
+          let defaultAggregation = 'sum';
+          if (isNumeric) {
+            // Rate, price, margin fields should default to average
+            if (lowerKey.includes('rate') || lowerKey.includes('price') || 
+                lowerKey.includes('margin') || lowerKey.includes('percent')) {
+              defaultAggregation = 'average';
+            }
+          }
+          
+          // Use getHierarchyLevel to determine proper hierarchy for top-level fields
+          // This correctly identifies flattened inventory fields, ledger fields, etc.
+          const fieldHierarchy = getHierarchyLevel(key);
+          
+          // Create field entry - include ALL fields regardless of type
+          // Mark with proper hierarchy (not just 'voucher')
+          const field = {
+            value: key,
+            label: getFieldLabel(key),
+            type: isNumeric ? 'value' : 'category',
+            hierarchy: fieldHierarchy, // Use proper hierarchy detection
+            ...(isNumeric && { aggregation: defaultAggregation }) // Add default aggregation for numeric fields
+          };
+          
+          fieldsMap.set(lowerKey, field);
+          fieldsOrder.push(lowerKey);
+        }
+      });
+      
+      // Also add any nested fields from extractAllFieldsFromCache that weren't in top-level keys
+      // These are fields like "ledgerentries.amount", "allinventoryentries.stockitemname", etc.
+      (extracted.fields || []).forEach(field => {
+        const key = field.value.toLowerCase();
+        // Only add if it's a nested field (contains dot) and not already added
+        if (field.value.includes('.') && !fieldsMap.has(key)) {
+          // Check if this nested field is itself an array container (e.g., "allinventoryentries.batchallocation")
+          // Split by dot and check if the last part is an array container
+          const fieldParts = field.value.toLowerCase().split('.');
+          const lastPart = fieldParts[fieldParts.length - 1];
+          
+          // Skip if the last part is an array container field
+          if (knownArrayFields.includes(lastPart)) {
+            return; // Skip - this is a nested array container, not a selectable field
+          }
+          
+          // Double-check: if field is classified as 'value' but the field name suggests it should be category
+          // BUT: Don't override if it's a known numeric field (quantity, amount, profit, cost, expense, qty, etc.)
+          const isKnownNumericField = lastPart.includes('quantity') || lastPart.includes('qty') || 
+                                      lastPart.includes('amount') || lastPart.includes('profit') || 
+                                      lastPart.includes('cost') || lastPart.includes('expense') ||
+                                      lastPart.includes('price') || lastPart.includes('rate') ||
+                                      lastPart.includes('total') || lastPart.includes('sum') ||
+                                      lastPart.includes('discount') || lastPart.includes('tax');
+          
+          let finalField = field;
+          if (!isKnownNumericField) {
+            const normalizedFieldKey = lastPart.replace(/[_\s]/g, '');
+            const shouldBeCategory = forceCategoryFields.some(cat => {
+              const normalizedCat = cat.replace(/[_\s]/g, '');
+              return normalizedFieldKey === normalizedCat || 
+                     normalizedFieldKey.includes(normalizedCat) || 
+                     normalizedCat.includes(normalizedFieldKey) ||
+                     (lastPart.includes('id') && (lastPart.endsWith('id') || lastPart.includes('nameid'))) ||
+                     lastPart.includes('name') || 
+                     lastPart.includes('code') || 
+                     lastPart.includes('mobile') || 
+                     lastPart.includes('gst') || 
+                     lastPart.includes('period');
+            });
+            
+            // Override type if field name suggests it should be category (but not for known numeric fields)
+            if (shouldBeCategory && field.type === 'value') {
+              finalField = { ...field, type: 'category' };
+            }
+          }
+          
+          fieldsMap.set(key, finalField);
+          fieldsOrder.push(key);
         }
       });
     }
@@ -3597,17 +4532,36 @@ const CustomReportModal = ({ salesData, onClose }) => {
     if (customerData && Array.isArray(customerData) && customerData.length > 0) {
       const sampleCustomer = customerData[0];
       if (sampleCustomer) {
+        // Fields that are array containers in customer data - should not be displayed as selectable fields
+        const customerArrayFields = ['address', 'contact'];
+        
         Object.keys(sampleCustomer).forEach(key => {
           const lowerKey = `customers.${key}`.toLowerCase();
+          const keyLower = key.toLowerCase();
+          
+          // Skip array container fields (ADDRESS, CONTACT) - these are containers, not selectable fields
+          if (customerArrayFields.includes(keyLower)) {
+            return; // Skip - this is a container field, not a selectable field
+          }
+          
           if (!key.startsWith('_') && !fieldsMap.has(lowerKey)) {
             const value = sampleCustomer[key];
-            const fieldType = determineFieldType(value);
+            // Check if field name indicates it should be a category (ID, code, name, etc.)
+            const normalizedKey = keyLower.replace(/[_\s]/g, ''); // Remove spaces and underscores for matching
+            const shouldBeCategory = forceCategoryFields.some(cat => {
+              const normalizedCat = cat.replace(/[_\s]/g, '');
+              return normalizedKey === normalizedCat || normalizedKey.includes(normalizedCat) || normalizedCat.includes(normalizedKey) ||
+                     keyLower.includes('id') || keyLower.includes('name') || keyLower.includes('code') || 
+                     keyLower.includes('mobile') || keyLower.includes('gst') || keyLower.includes('period');
+            });
+            const fieldType = shouldBeCategory ? 'category' : determineFieldType(value);
             fieldsMap.set(lowerKey, {
               value: `customers.${key}`,
               label: getFieldLabel(key, 'Customers'),
               type: fieldType,
               hierarchy: 'customers'
             });
+            fieldsOrder.push(lowerKey);
           }
         });
 
@@ -3618,13 +4572,22 @@ const CustomReportModal = ({ salesData, onClose }) => {
             const lowerKey = `customers.address.${key}`.toLowerCase();
             if (!key.startsWith('_') && !fieldsMap.has(lowerKey)) {
               const value = sampleAddress[key];
-              const fieldType = determineFieldType(value);
+              const keyLower = key.toLowerCase();
+              const normalizedKey = keyLower.replace(/[_\s]/g, '');
+              const shouldBeCategory = forceCategoryFields.some(cat => {
+                const normalizedCat = cat.replace(/[_\s]/g, '');
+                return normalizedKey === normalizedCat || normalizedKey.includes(normalizedCat) || normalizedCat.includes(normalizedKey) ||
+                       keyLower.includes('id') || keyLower.includes('name') || keyLower.includes('code') || 
+                       keyLower.includes('mobile') || keyLower.includes('gst') || keyLower.includes('period');
+              });
+              const fieldType = shouldBeCategory ? 'category' : determineFieldType(value);
               fieldsMap.set(lowerKey, {
                 value: `customers.address.${key}`,
                 label: getFieldLabel(key, 'Customers → Address'),
                 type: fieldType,
                 hierarchy: 'customers'
               });
+              fieldsOrder.push(lowerKey);
             }
           });
         }
@@ -3636,13 +4599,22 @@ const CustomReportModal = ({ salesData, onClose }) => {
             const lowerKey = `customers.contact.${key}`.toLowerCase();
             if (!key.startsWith('_') && !fieldsMap.has(lowerKey)) {
               const value = sampleContact[key];
-              const fieldType = determineFieldType(value);
+              const keyLower = key.toLowerCase();
+              const normalizedKey = keyLower.replace(/[_\s]/g, '');
+              const shouldBeCategory = forceCategoryFields.some(cat => {
+                const normalizedCat = cat.replace(/[_\s]/g, '');
+                return normalizedKey === normalizedCat || normalizedKey.includes(normalizedCat) || normalizedCat.includes(normalizedKey) ||
+                       keyLower.includes('id') || keyLower.includes('name') || keyLower.includes('code') || 
+                       keyLower.includes('mobile') || keyLower.includes('gst') || keyLower.includes('period');
+              });
+              const fieldType = shouldBeCategory ? 'category' : determineFieldType(value);
               fieldsMap.set(lowerKey, {
                 value: `customers.contact.${key}`,
                 label: getFieldLabel(key, 'Customers → Contact'),
                 type: fieldType,
                 hierarchy: 'customers'
               });
+              fieldsOrder.push(lowerKey);
             }
           });
         }
@@ -3657,13 +4629,22 @@ const CustomReportModal = ({ salesData, onClose }) => {
           const lowerKey = `stockitems.${key}`.toLowerCase();
           if (!key.startsWith('_') && !fieldsMap.has(lowerKey)) {
             const value = sampleItem[key];
-            const fieldType = determineFieldType(value);
+            const keyLower = key.toLowerCase();
+            const normalizedKey = keyLower.replace(/[_\s]/g, '');
+            const shouldBeCategory = forceCategoryFields.some(cat => {
+              const normalizedCat = cat.replace(/[_\s]/g, '');
+              return normalizedKey === normalizedCat || normalizedKey.includes(normalizedCat) || normalizedCat.includes(normalizedKey) ||
+                     keyLower.includes('id') || keyLower.includes('name') || keyLower.includes('code') || 
+                     keyLower.includes('mobile') || keyLower.includes('gst') || keyLower.includes('period');
+            });
+            const fieldType = shouldBeCategory ? 'category' : determineFieldType(value);
             fieldsMap.set(lowerKey, {
               value: `stockitems.${key}`,
               label: getFieldLabel(key, 'Stock Items'),
               type: fieldType,
               hierarchy: 'stockitems'
             });
+            fieldsOrder.push(lowerKey);
           }
         });
       }
@@ -3674,19 +4655,12 @@ const CustomReportModal = ({ salesData, onClose }) => {
       const lowerKey = field.value.toLowerCase();
       if (!fieldsMap.has(lowerKey)) {
         fieldsMap.set(lowerKey, field);
+        fieldsOrder.push(lowerKey);
       }
     });
 
-    return Array.from(fieldsMap.values()).sort((a, b) => {
-      // Sort by hierarchy first, then by label
-      const hierarchyOrder = ['voucher', 'customers', 'stockitems', 'udf'];
-      const aOrder = hierarchyOrder.indexOf(a.hierarchy) >= 0 ? hierarchyOrder.indexOf(a.hierarchy) : 999;
-      const bOrder = hierarchyOrder.indexOf(b.hierarchy) >= 0 ? hierarchyOrder.indexOf(b.hierarchy) : 999;
-      if (aOrder !== bOrder) {
-        return aOrder - bOrder;
-      }
-      return a.label.localeCompare(b.label);
-    });
+    // Return fields in the order they were added (preserves cache order)
+    return fieldsOrder.map(key => fieldsMap.get(key)).filter(Boolean);
   }, [rawVoucherData, salesData, udfFields, customerData, stockItemData]);
 
   // Extract available fields for relationship configuration
@@ -3700,8 +4674,20 @@ const CustomReportModal = ({ salesData, onClose }) => {
 
     // Get voucher fields from allFields (including nested array fields flattened at voucher level)
     if (allFields && Array.isArray(allFields)) {
+      // Fields that are array containers - should not be in relationship fields
+      const knownArrayFields = ['ledgerentries', 'allledgerentries', 'allinventoryentries', 
+                                'inventoryentries', 'billallocations', 'batchallocation', 
+                                'accountingallocation', 'address'];
+      
       const voucherFields = allFields
         .filter(f => {
+          const lowerValue = f.value.toLowerCase();
+          
+          // Exclude array container fields
+          if (knownArrayFields.includes(lowerValue)) {
+            return false;
+          }
+          
           // Include:
           // 1. Top-level voucher fields (not nested arrays or other tables)
           // 2. Fields from nested arrays like ledgerentries, accountingallocation, allinventoryentries
@@ -3709,7 +4695,7 @@ const CustomReportModal = ({ salesData, onClose }) => {
           return (
             (!f.value.includes('.') && !f.value.startsWith('customers.') && !f.value.startsWith('stockitems.') && f.hierarchy === 'voucher') ||
             // Include flattened fields from nested arrays that are commonly used for relationships
-            (['ledgernameid', 'stockitemnameid', 'partyledgernameid', 'partyid', 'itemid'].includes(f.value.toLowerCase()))
+            (['ledgernameid', 'stockitemnameid', 'partyledgernameid', 'partyid', 'itemid'].includes(lowerValue))
           );
         })
         .map(f => ({
@@ -4141,9 +5127,31 @@ const CustomReportModal = ({ salesData, onClose }) => {
       const next = new Set(prev);
       if (next.has(fieldValue)) {
         next.delete(fieldValue);
+        // Remove aggregation when field is deselected
+        setFieldAggregations(prevAgg => {
+          const nextAgg = new Map(prevAgg);
+          nextAgg.delete(fieldValue);
+          return nextAgg;
+        });
       } else {
         next.add(fieldValue);
+        // Initialize with default 'sum' aggregation when field is selected (for value fields)
+        setFieldAggregations(prevAgg => {
+          const nextAgg = new Map(prevAgg);
+          if (!nextAgg.has(fieldValue)) {
+            nextAgg.set(fieldValue, 'sum');
+          }
+          return nextAgg;
+        });
       }
+      return next;
+    });
+  };
+
+  const handleAggregationChange = (fieldValue, aggregation) => {
+    setFieldAggregations(prev => {
+      const next = new Map(prev);
+      next.set(fieldValue, aggregation);
       return next;
     });
   };
@@ -4215,7 +5223,7 @@ const CustomReportModal = ({ salesData, onClose }) => {
     });
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!reportTitle.trim()) {
       alert('Please enter a report title');
       return;
@@ -4227,36 +5235,94 @@ const CustomReportModal = ({ salesData, onClose }) => {
     }
 
     try {
-      const existingReports = JSON.parse(localStorage.getItem('customReports') || '[]');
-      const newReport = {
-        id: Date.now().toString(),
+      // Get current company info
+      const companies = JSON.parse(sessionStorage.getItem('allConnections') || '[]');
+      const selectedCompanyGuid = sessionStorage.getItem('selectedCompanyGuid') || '';
+      const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId') || '';
+      
+      const currentCompanyObj = companies.find(c =>
+        c.guid === selectedCompanyGuid &&
+        (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+      );
+      
+      if (!currentCompanyObj || !currentCompanyObj.tallyloc_id || !currentCompanyObj.guid) {
+        alert('Company information not available. Please refresh and try again.');
+        return;
+      }
+
+      // Find first numeric field for valueField (required by API)
+      const fieldsArray = Array.from(selectedFields);
+      const numericFields = ['amount', 'value', 'quantity', 'qty', 'rate', 'price', 'total'];
+      const defaultValueField = fieldsArray.find(f => 
+        numericFields.some(nf => f.toLowerCase().includes(nf))
+      ) || fieldsArray[0] || 'amount'; // Use first field or default to 'amount'
+
+      // Common payload parts for both create & update
+      const basePayload = {
+        dashboardType: 'custom-reports',
         title: reportTitle.trim(),
-        fields: Array.from(selectedFields),
-        filters: filters.map(f => ({
-          field: f.field,
-          values: f.values
-        })),
-        relationships: relationships.length > 0 ? relationships : undefined, // Save relationships if configured
-        sortIndexes: {},
-        createdAt: new Date().toISOString()
+        chartType: 'table',
+        // Required fields by API
+        valueField: defaultValueField,
+        aggregation: 'sum',
+        groupBy: null,
+        topN: null,
+        filters: [],
+        sortOrder: 0,
+        cardConfig: {
+          fields: fieldsArray,
+          filters: filters.map(f => ({
+            field: f.field,
+            values: f.values
+          })),
+          relationships: relationships.length > 0 ? relationships : undefined,
+          sortIndexes: {},
+          // Persist per-field aggregations (only for selected fields)
+          fieldAggregations: Object.fromEntries(
+            Array.from(fieldAggregations.entries()).filter(([field]) => fieldsArray.includes(field))
+          ),
+          pivotConfig: initialReport?.pivotConfig || null,
+          isPivotMode: initialReport?.isPivotMode || false,
+          savedPivots: initialReport?.savedPivots || []
+        }
       };
 
-      existingReports.push(newReport);
-      localStorage.setItem('customReports', JSON.stringify(existingReports));
+      let response;
+
+      if (initialReport && initialReport.id) {
+        // Edit existing report
+        const updatePayload = {
+          ...basePayload
+        };
+        const endpoint = API_CONFIG.ENDPOINTS.CUSTOM_CARD_UPDATE(initialReport.id);
+        response = await apiPut(endpoint, updatePayload);
+      } else {
+        // Create new report
+        const createPayload = {
+          ...basePayload,
+          tallylocId: currentCompanyObj.tallyloc_id,
+          coGuid: currentCompanyObj.guid
+        };
+        response = await apiPost(API_CONFIG.ENDPOINTS.CUSTOM_CARD_CREATE, createPayload);
+      }
       
-      setReportTitle('');
-      setSelectedFields(new Set());
-      setSearchTerm('');
-      setFilters([]);
-      setRelationships([]);
-      setShowRelationships(false);
-      setCurrentFilterField('');
-      setCurrentFilterValues(new Set());
-      setFilterValuesSearchTerm('');
-      setFilterFieldSearchTerm('');
-      onClose();
-      
-      alert('Custom report created successfully!');
+      if (response && response.status === 'success' && response.data) {
+        setReportTitle('');
+        setSelectedFields(new Set());
+        setSearchTerm('');
+        setFilters([]);
+        setRelationships([]);
+        setShowRelationships(false);
+        setCurrentFilterField('');
+        setCurrentFilterValues(new Set());
+        setFilterValuesSearchTerm('');
+        setFilterFieldSearchTerm('');
+        onClose();
+        
+        alert(initialReport ? 'Custom report updated successfully!' : 'Custom report created successfully!');
+      } else {
+        throw new Error('Failed to save report');
+      }
     } catch (error) {
       console.error('Error saving custom report:', error);
       alert('Failed to save custom report. Please try again.');
@@ -4426,6 +5492,9 @@ const CustomReportModal = ({ salesData, onClose }) => {
             selectedFields={selectedFields}
             onFieldToggle={handleFieldToggle}
             searchTerm={searchTerm}
+            showAggregationDropdown={true}
+            fieldAggregations={fieldAggregations}
+            onAggregationChange={handleAggregationChange}
           />
         </div>
 
@@ -5231,7 +6300,16 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, getFieldLabel }) => {
   };
 
   const splitKey = (key) => {
-    return key === 'Total' ? ['Total'] : key.split('|');
+    if (key === 'Total') {
+      return ['Total'];
+    }
+    try {
+      const parsed = JSON.parse(key);
+      return Array.isArray(parsed) ? parsed : [String(parsed)];
+    } catch (e) {
+      // Fallback for any legacy/plain keys
+      return String(key).split('|');
+    }
   };
 
   // Pagination Controls Component
@@ -5820,14 +6898,16 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, getFieldLabel }) => {
 };
 
 // Pivot Fields Panel Component
-const PivotFieldsPanel = ({ 
-  availableFields, 
-  pivotConfig, 
-  setPivotConfig, 
-  onFieldConfig,
-  getFieldLabel,
-  getFieldType
-}) => {
+const PivotFieldsPanel = (props) => {
+  const {
+    availableFields,
+    pivotConfig,
+    setPivotConfig,
+    onFieldConfig,
+    getFieldLabel,
+    getFieldType,
+    onClose
+  } = props;
   const [draggedField, setDraggedField] = useState(null);
   const [dragOverArea, setDragOverArea] = useState(null);
   const [fieldSearch, setFieldSearch] = useState('');
@@ -6128,6 +7208,25 @@ const PivotFieldsPanel = ({
           }}>
             Pivot Table Fields
           </h3>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              padding: '4px',
+              borderRadius: '999px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#64748b',
+              transition: 'all 0.15s ease'
+            }}
+            title="Close"
+          >
+            <span className="material-icons" style={{ fontSize: '18px' }}>close</span>
+          </button>
         </div>
         <input
           type="text"

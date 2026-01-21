@@ -900,7 +900,18 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             flatCard.overrideDateFilter = parsedCardConfig.overrideDateFilter || false;
             // Year compare specific properties
             flatCard.yearCompareCategory = parsedCardConfig.yearCompareCategory;
-            flatCard.yearCompareValue = parsedCardConfig.yearCompareValue;
+            // Support both single value (legacy) and multiple values (new)
+            if (parsedCardConfig.yearCompareValues && Array.isArray(parsedCardConfig.yearCompareValues)) {
+              flatCard.yearCompareValues = parsedCardConfig.yearCompareValues;
+              // Keep yearCompareValue for backward compatibility
+              flatCard.yearCompareValue = parsedCardConfig.yearCompareValues[0] || parsedCardConfig.yearCompareValue;
+            } else {
+              flatCard.yearCompareValue = parsedCardConfig.yearCompareValue;
+              // Migrate single value to array
+              if (parsedCardConfig.yearCompareValue) {
+                flatCard.yearCompareValues = [parsedCardConfig.yearCompareValue];
+              }
+            }
             // Company compare specific properties
             flatCard.companyCompareCategory = parsedCardConfig.companyCompareCategory;
             flatCard.companyCompareValue = parsedCardConfig.companyCompareValue;
@@ -938,6 +949,16 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             filters: flatCard.filters,
             yearCompareCategory: flatCard.yearCompareCategory,
             yearCompareValue: flatCard.yearCompareValue,
+            yearCompareValues: flatCard.yearCompareValues || (flatCard.yearCompareValue ? [flatCard.yearCompareValue] : []),
+            yearCompareAggregates: parsedCardConfig.yearCompareAggregates || (parsedCardConfig.aggregation ? (() => {
+              // Migrate from single aggregate to per-field aggregates
+              const values = flatCard.yearCompareValues || (flatCard.yearCompareValue ? [flatCard.yearCompareValue] : []);
+              const aggregates = {};
+              values.forEach(field => {
+                aggregates[field] = parsedCardConfig.aggregation;
+              });
+              return aggregates;
+            })() : {}),
             companyCompareCategory: flatCard.companyCompareCategory,
             companyCompareValue: flatCard.companyCompareValue
           });
@@ -2767,14 +2788,31 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           });
         }
         
-        // Extract tax information from ledgers
-        const parseAmount = (amountStr) => {
+        // Amount parser that also respects Tally's ISDEEMEDPOSITIVE flag
+        const parseAmount = (amountStr, isDeemedPositiveFlag) => {
           if (!amountStr) return 0;
           const cleaned = String(amountStr).replace(/,/g, '').replace(/[()]/g, '');
-          // Handle negative amounts in parentheses like "(-)0.30"
-          const isNegative = cleaned.includes('(-)') || (cleaned.startsWith('-') && !cleaned.startsWith('(-)'));
-          const numValue = parseFloat(cleaned.replace(/[()]/g, '')) || 0;
-          return isNegative ? -Math.abs(numValue) : numValue;
+          const rawNum = parseFloat(cleaned.replace(/[()]/g, '')) || 0;
+          const absVal = Math.abs(rawNum);
+
+          // If ISDEEMEDPOSITIVE is provided, use it to decide the sign:
+          //   - 'no'  => debit  => positive
+          //   - 'yes' => credit => negative
+          if (isDeemedPositiveFlag !== undefined && isDeemedPositiveFlag !== null && isDeemedPositiveFlag !== '') {
+            const flag = String(isDeemedPositiveFlag).toLowerCase().trim();
+            if (flag === 'yes' || flag === 'y' || flag === 'true') {
+              return -absVal;
+            }
+            if (flag === 'no' || flag === 'n' || flag === 'false') {
+              return absVal;
+            }
+          }
+
+          // Fallback to existing sign detection from the raw amount string
+          const isNegative =
+            cleaned.includes('(-)') ||
+            (cleaned.startsWith('-') && !cleaned.startsWith('(-)'));
+          return isNegative ? -absVal : absVal;
         };
         
         let totalCgst = 0;
@@ -2789,7 +2827,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         if (Array.isArray(ledgerEntries)) {
           ledgerEntries.forEach(ledger => {
             const ledgerName = (ledger.ledgername || ledger.ledger || '').toLowerCase();
-            const ledgerAmt = parseAmount(ledger.amount || ledger.amt);
+            const ledgerAmt = parseAmount(ledger.amount || ledger.amt, ledger.isdeemedpositive);
             
             // Extract ledger group from ledger entries where ispartyledger = "Yes"
             const ispartyledger = (ledger.ispartyledger || ledger.isPartyLedger || '').toString().toLowerCase().trim();
@@ -2812,7 +2850,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         const inventoryEntries = voucher.allinventoryentries || voucher.inventry || [];
         if (Array.isArray(inventoryEntries)) {
           inventoryEntries.forEach(inventoryItem => {
-            const itemAmount = parseAmount(inventoryItem.amount || inventoryItem.amt);
+            const itemAmount = parseAmount(inventoryItem.amount || inventoryItem.amt, inventoryItem.isdeemedpositive);
             totalSalesAmount += itemAmount;
           });
         }
@@ -2828,7 +2866,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               return parseInt(cleaned, 10) || 0;
             };
             
-            const itemAmount = parseAmount(inventoryItem.amount || inventoryItem.amt);
+            const itemAmount = parseAmount(inventoryItem.amount || inventoryItem.amt, inventoryItem.isdeemedpositive);
             // Calculate proportional taxes based on item amount vs total sales amount
             const taxRatio = totalSalesAmount > 0 ? itemAmount / totalSalesAmount : 0;
             const itemCgst = totalCgst * taxRatio;
@@ -3168,12 +3206,27 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                voucher.salespersonname || voucher.SALESPERSONNAME || 'Unassigned';
       };
 
-      const parseAmount = (amountStr) => {
+      const parseAmount = (amountStr, isDeemedPositiveFlag) => {
         if (!amountStr) return 0;
         const cleaned = String(amountStr).replace(/,/g, '').replace(/[()]/g, '');
-        const isNegative = cleaned.includes('(-)') || (cleaned.startsWith('-') && !cleaned.startsWith('(-)'));
-        const numValue = parseFloat(cleaned.replace(/[()]/g, '')) || 0;
-        return isNegative ? -Math.abs(numValue) : numValue;
+        const rawNum = parseFloat(cleaned.replace(/[()]/g, '')) || 0;
+        const absVal = Math.abs(rawNum);
+
+        // Apply ISDEEMEDPOSITIVE when available
+        if (isDeemedPositiveFlag !== undefined && isDeemedPositiveFlag !== null && isDeemedPositiveFlag !== '') {
+          const flag = String(isDeemedPositiveFlag).toLowerCase().trim();
+          if (flag === 'yes' || flag === 'y' || flag === 'true') {
+            return -absVal;
+          }
+          if (flag === 'no' || flag === 'n' || flag === 'false') {
+            return absVal;
+          }
+        }
+
+        const isNegative =
+          cleaned.includes('(-)') ||
+          (cleaned.startsWith('-') && !cleaned.startsWith('(-)'));
+        return isNegative ? -absVal : absVal;
       };
 
       // Filter vouchers to only include sales-related vouchers
@@ -3220,7 +3273,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         if (Array.isArray(ledgerEntries)) {
           ledgerEntries.forEach(ledger => {
             const ledgerName = (ledger.ledgername || ledger.ledger || '').toLowerCase();
-            const ledgerAmt = parseAmount(ledger.amount || ledger.amt);
+            const ledgerAmt = parseAmount(ledger.amount || ledger.amt, ledger.isdeemedpositive);
             const ispartyledger = (ledger.ispartyledger || ledger.isPartyLedger || '').toString().toLowerCase().trim();
             if (ispartyledger === 'yes' && ledger.group) {
               voucherLedgerGroup = ledger.group;
@@ -3238,7 +3291,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         const inventoryEntries = voucher.allinventoryentries || voucher.inventry || [];
         if (Array.isArray(inventoryEntries)) {
           inventoryEntries.forEach(inventoryItem => {
-            const itemAmount = parseAmount(inventoryItem.amount || inventoryItem.amt);
+            const itemAmount = parseAmount(inventoryItem.amount || inventoryItem.amt, inventoryItem.isdeemedpositive);
             totalSalesAmount += itemAmount;
           });
         }
@@ -3252,7 +3305,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               return parseInt(cleaned, 10) || 0;
             };
 
-            const itemAmount = parseAmount(inventoryItem.amount || inventoryItem.amt);
+            const itemAmount = parseAmount(inventoryItem.amount || inventoryItem.amt, inventoryItem.isdeemedpositive);
             const taxRatio = totalSalesAmount > 0 ? itemAmount / totalSalesAmount : 0;
             const itemCgst = totalCgst * taxRatio;
             const itemSgst = totalSgst * taxRatio;
@@ -6620,14 +6673,21 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   // Generate year-wise comparison data
   const generateYearCompareData = useCallback((cardConfig, salesData) => {
     if (!salesData || salesData.length === 0) return [];
-    if (!cardConfig || !cardConfig.yearCompareValue) {
+    
+    // Support both single value (legacy) and multiple values (new)
+    const valueFields = cardConfig.yearCompareValues && Array.isArray(cardConfig.yearCompareValues) && cardConfig.yearCompareValues.length > 0
+      ? cardConfig.yearCompareValues
+      : (cardConfig.yearCompareValue ? [cardConfig.yearCompareValue] : []);
+    
+    if (!cardConfig || valueFields.length === 0) {
       console.warn('Invalid year compare config:', cardConfig);
       return [];
     }
 
     const category = cardConfig.yearCompareCategory || 'month';
-    const valueField = cardConfig.yearCompareValue;
-    const aggregation = cardConfig.aggregation || 'sum';
+    // Support per-field aggregates (new) or single aggregate (legacy)
+    const perFieldAggregates = cardConfig.yearCompareAggregates || {};
+    const defaultAggregation = cardConfig.aggregation || 'sum';
 
     // Get financial year start for year comparison
     let fyStartMonth = 3; // Default to April (0-indexed)
@@ -6641,10 +6701,14 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       // Use default if company not selected
     }
 
-    // Group data by category (month/quarter/week) and financial year
-    // Structure: { categoryKey: { year: { values: [], count: 0 } } }
-    const grouped = {};
+    // Process each metric separately
     const allYears = new Set();
+    const allMetricsData = {};
+    
+    // Initialize structure for each metric
+    valueFields.forEach(valueField => {
+      allMetricsData[valueField] = {};
+    });
     
     salesData.forEach(sale => {
       const saleDate = sale.cp_date || sale.date;
@@ -6679,150 +6743,181 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       
       if (!categoryKey) return;
       
-      // Handle count fields specially
-      if (valueField === 'transactions' || valueField === 'unique_customers' || 
-          valueField === 'unique_items' || valueField === 'unique_orders') {
-        // For count fields, we need to track unique values, not just sum
-        if (!grouped[categoryKey]) {
-          grouped[categoryKey] = {
-            label: categoryLabel,
-            values: {}
-          };
-        }
+      // Process each metric field
+      valueFields.forEach(valueField => {
+        const grouped = allMetricsData[valueField];
         
-        if (!grouped[categoryKey].values[year]) {
-          grouped[categoryKey].values[year] = {
-            values: [],
-            count: 0,
-            uniqueTransactions: new Set(),
-            uniqueCustomers: new Set(),
-            uniqueItems: new Set(),
-            uniqueOrders: new Set()
-          };
-        }
-        
-        const yearData = grouped[categoryKey].values[year];
-        
-        // Track unique values for count fields
-        if (valueField === 'transactions' || valueField === 'unique_orders') {
-          const masterid = sale.masterid || sale.mstid;
-          if (masterid) {
-            if (valueField === 'transactions') {
-              yearData.uniqueTransactions.add(String(masterid));
-            } else {
-              yearData.uniqueOrders.add(String(masterid));
+        // Handle count fields specially
+        if (valueField === 'transactions' || valueField === 'unique_customers' || 
+            valueField === 'unique_items' || valueField === 'unique_orders') {
+          // For count fields, we need to track unique values, not just sum
+          if (!grouped[categoryKey]) {
+            grouped[categoryKey] = {
+              label: categoryLabel,
+              values: {}
+            };
+          }
+          
+          if (!grouped[categoryKey].values[year]) {
+            grouped[categoryKey].values[year] = {
+              values: [],
+              count: 0,
+              uniqueTransactions: new Set(),
+              uniqueCustomers: new Set(),
+              uniqueItems: new Set(),
+              uniqueOrders: new Set()
+            };
+          }
+          
+          const yearData = grouped[categoryKey].values[year];
+          
+          // Track unique values for count fields
+          if (valueField === 'transactions' || valueField === 'unique_orders') {
+            const masterid = sale.masterid || sale.mstid;
+            if (masterid) {
+              if (valueField === 'transactions') {
+                yearData.uniqueTransactions.add(String(masterid));
+              } else {
+                yearData.uniqueOrders.add(String(masterid));
+              }
+            }
+          } else if (valueField === 'unique_customers') {
+            const customer = getFieldValue(sale, 'customer') || getFieldValue(sale, 'partyledgername');
+            if (customer) {
+              yearData.uniqueCustomers.add(String(customer).trim());
+            }
+          } else if (valueField === 'unique_items') {
+            const item = getFieldValue(sale, 'item') || getFieldValue(sale, 'stockitemname') || 
+                        getFieldValue(sale, 'stockitemnameid');
+            if (item) {
+              yearData.uniqueItems.add(String(item).trim());
             }
           }
-        } else if (valueField === 'unique_customers') {
-          const customer = getFieldValue(sale, 'customer') || getFieldValue(sale, 'partyledgername');
-          if (customer) {
-            yearData.uniqueCustomers.add(String(customer).trim());
+          
+          yearData.count += 1;
+        } else {
+          // For regular fields, get value normally
+          const value = parseFloat(getFieldValue(sale, valueField) || 0);
+          
+          if (!grouped[categoryKey]) {
+            grouped[categoryKey] = {
+              label: categoryLabel,
+              values: {}
+            };
           }
-        } else if (valueField === 'unique_items') {
-          const item = getFieldValue(sale, 'item') || getFieldValue(sale, 'stockitemname') || 
-                      getFieldValue(sale, 'stockitemnameid');
-          if (item) {
-            yearData.uniqueItems.add(String(item).trim());
+          
+          if (!grouped[categoryKey].values[year]) {
+            grouped[categoryKey].values[year] = {
+              values: [],
+              count: 0
+            };
           }
+          
+          grouped[categoryKey].values[year].values.push(value);
+          grouped[categoryKey].values[year].count += 1;
         }
-        
-        yearData.count += 1;
-      } else {
-        // For regular fields, get value normally
-        const value = parseFloat(getFieldValue(sale, valueField) || 0);
-        
-        if (!grouped[categoryKey]) {
-          grouped[categoryKey] = {
-            label: categoryLabel,
-            values: {}
-          };
-        }
-        
-        if (!grouped[categoryKey].values[year]) {
-          grouped[categoryKey].values[year] = {
-            values: [],
-            count: 0
-          };
-        }
-        
-        grouped[categoryKey].values[year].values.push(value);
-        grouped[categoryKey].values[year].count += 1;
-      }
+      });
     });
 
     const sortedYears = Array.from(allYears).sort();
 
-    // Get sorted category keys
-    const sortedCategoryKeys = Object.keys(grouped).sort((a, b) => {
-      if (category === 'month') {
-        // Sort months in financial year order (April to March)
-        const monthA = parseInt(a);
-        const monthB = parseInt(b);
-        // Convert to financial year month index (April=0, May=1, ..., March=11)
-        const fyMonthIndexA = monthA >= fyStartMonth + 1 
-          ? monthA - (fyStartMonth + 1)  // April=0, May=1, ..., Dec=8
-          : monthA + (12 - (fyStartMonth + 1)); // Jan=9, Feb=10, Mar=11
-        const fyMonthIndexB = monthB >= fyStartMonth + 1
-          ? monthB - (fyStartMonth + 1)
-          : monthB + (12 - (fyStartMonth + 1));
-        return fyMonthIndexA - fyMonthIndexB;
-      } else if (category === 'quarter') {
-        return parseInt(a.replace('Q', '')) - parseInt(b.replace('Q', ''));
-      } else if (category === 'week') {
-        return parseInt(a.replace('W', '')) - parseInt(b.replace('W', ''));
-      }
-      return a.localeCompare(b);
-    });
+    // Helper function to sort category keys
+    const sortCategoryKeys = (keys) => {
+      return keys.sort((a, b) => {
+        if (category === 'month') {
+          // Sort months in financial year order (April to March)
+          const monthA = parseInt(a);
+          const monthB = parseInt(b);
+          // Convert to financial year month index (April=0, May=1, ..., March=11)
+          const fyMonthIndexA = monthA >= fyStartMonth + 1 
+            ? monthA - (fyStartMonth + 1)  // April=0, May=1, ..., Dec=8
+            : monthA + (12 - (fyStartMonth + 1)); // Jan=9, Feb=10, Mar=11
+          const fyMonthIndexB = monthB >= fyStartMonth + 1
+            ? monthB - (fyStartMonth + 1)
+            : monthB + (12 - (fyStartMonth + 1));
+          return fyMonthIndexA - fyMonthIndexB;
+        } else if (category === 'quarter') {
+          return parseInt(a.replace('Q', '')) - parseInt(b.replace('Q', ''));
+        } else if (category === 'week') {
+          return parseInt(a.replace('W', '')) - parseInt(b.replace('W', ''));
+        }
+        return a.localeCompare(b);
+      });
+    };
 
-    // Build result array: for each category, create entries for each year
+    // Get sorted category keys from first metric (all metrics should have same categories)
+    const firstMetric = valueFields[0];
+    const firstMetricGrouped = allMetricsData[firstMetric];
+    const sortedCategoryKeys = sortCategoryKeys(Object.keys(firstMetricGrouped));
+
+    // Build result array: for each metric, for each category, for each year
     const result = [];
+    const metricsData = {};
     
-    sortedCategoryKeys.forEach(catKey => {
-      const catData = grouped[catKey];
-      sortedYears.forEach(year => {
-        const yearData = catData.values[year];
-        let finalValue = 0;
+    valueFields.forEach(valueField => {
+      const grouped = allMetricsData[valueField];
+      const metricResult = [];
+      
+      sortedCategoryKeys.forEach(catKey => {
+        const catData = grouped[catKey];
+        if (!catData) return;
         
-        if (yearData) {
-          // Handle count fields specially (for both count and sum aggregation)
-          if (valueField === 'transactions') {
-            finalValue = yearData.uniqueTransactions ? yearData.uniqueTransactions.size : yearData.count;
-          } else if (valueField === 'unique_customers') {
-            finalValue = yearData.uniqueCustomers ? yearData.uniqueCustomers.size : 0;
-          } else if (valueField === 'unique_items') {
-            finalValue = yearData.uniqueItems ? yearData.uniqueItems.size : 0;
-          } else if (valueField === 'unique_orders') {
-            finalValue = yearData.uniqueOrders ? yearData.uniqueOrders.size : yearData.count;
-          } else if (yearData.values.length > 0) {
-            // Regular fields
-            if (aggregation === 'sum') {
-              finalValue = yearData.values.reduce((a, b) => a + b, 0);
-            } else if (aggregation === 'average') {
-              finalValue = yearData.values.reduce((a, b) => a + b, 0) / yearData.values.length;
-            } else if (aggregation === 'count') {
-              finalValue = yearData.count;
-            } else if (aggregation === 'min') {
-              finalValue = Math.min(...yearData.values);
-            } else if (aggregation === 'max') {
-              finalValue = Math.max(...yearData.values);
+        sortedYears.forEach(year => {
+          const yearData = catData.values[year];
+          let finalValue = 0;
+          
+          if (yearData) {
+            // Handle count fields specially (for both count and sum aggregation)
+            if (valueField === 'transactions') {
+              finalValue = yearData.uniqueTransactions ? yearData.uniqueTransactions.size : yearData.count;
+            } else if (valueField === 'unique_customers') {
+              finalValue = yearData.uniqueCustomers ? yearData.uniqueCustomers.size : 0;
+            } else if (valueField === 'unique_items') {
+              finalValue = yearData.uniqueItems ? yearData.uniqueItems.size : 0;
+            } else if (valueField === 'unique_orders') {
+              finalValue = yearData.uniqueOrders ? yearData.uniqueOrders.size : yearData.count;
+            } else if (yearData.values.length > 0) {
+              // Regular fields - use per-field aggregate if available, otherwise use default
+              const fieldAggregation = perFieldAggregates[valueField] || defaultAggregation;
+              if (fieldAggregation === 'sum') {
+                finalValue = yearData.values.reduce((a, b) => a + b, 0);
+              } else if (fieldAggregation === 'average') {
+                finalValue = yearData.values.reduce((a, b) => a + b, 0) / yearData.values.length;
+              } else if (fieldAggregation === 'count') {
+                finalValue = yearData.count;
+              } else if (fieldAggregation === 'min') {
+                finalValue = Math.min(...yearData.values);
+              } else if (fieldAggregation === 'max') {
+                finalValue = Math.max(...yearData.values);
+              }
             }
           }
-        }
-        
-        result.push({
-          category: catData.label,
-          year: year,
-          value: finalValue,
-          key: `${catData.label}-${year}`
+          
+          metricResult.push({
+            category: catData.label,
+            year: year,
+            value: finalValue,
+            key: `${catData.label}-${year}-${valueField}`,
+            metric: valueField
+          });
         });
       });
+      
+      metricsData[valueField] = metricResult;
+      // For backward compatibility, also add to main result (first metric)
+      if (valueField === firstMetric) {
+        result.push(...metricResult.map(r => ({ ...r, key: `${r.category}-${r.year}` })));
+      }
     });
 
     return {
-      data: result,
+      data: result, // First metric data for backward compatibility
+      metricsData: metricsData, // All metrics data
+      metrics: valueFields, // List of all metrics
       years: sortedYears,
-      categories: sortedCategoryKeys.map(key => grouped[key].label),
-      valueField: valueField
+      categories: sortedCategoryKeys.map(key => firstMetricGrouped[key].label),
+      valueField: firstMetric, // First metric for backward compatibility
+      valueFields: valueFields // All metrics
     };
   }, [getFieldValue]);
 
@@ -7011,13 +7106,30 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                    voucher.salespersonname || voucher.SALESPERSONNAME || 'Unassigned';
           };
           
-          // Parse amount helper
-          const parseAmount = (amountStr) => {
+          // Parse amount helper with ISDEEMEDPOSITIVE handling
+          const parseAmount = (amountStr, isDeemedPositiveFlag) => {
             if (!amountStr) return 0;
             const cleaned = String(amountStr).replace(/,/g, '').replace(/[()]/g, '');
-            const isNegative = cleaned.includes('(-)') || (cleaned.startsWith('-') && !cleaned.startsWith('(-)'));
-            const numValue = parseFloat(cleaned.replace(/[()]/g, '')) || 0;
-            return isNegative ? -Math.abs(numValue) : numValue;
+            const rawNum = parseFloat(cleaned.replace(/[()]/g, '')) || 0;
+            const absVal = Math.abs(rawNum);
+
+            // Respect ISDEEMEDPOSITIVE when present:
+            //   - 'no'  => debit  => positive
+            //   - 'yes' => credit => negative
+            if (isDeemedPositiveFlag !== undefined && isDeemedPositiveFlag !== null && isDeemedPositiveFlag !== '') {
+              const flag = String(isDeemedPositiveFlag).toLowerCase().trim();
+              if (flag === 'yes' || flag === 'y' || flag === 'true') {
+                return -absVal;
+              }
+              if (flag === 'no' || flag === 'n' || flag === 'false') {
+                return absVal;
+              }
+            }
+
+            const isNegative =
+              cleaned.includes('(-)') ||
+              (cleaned.startsWith('-') && !cleaned.startsWith('(-)'));
+            return isNegative ? -absVal : absVal;
           };
           
           // Filter vouchers to only include sales-related vouchers
@@ -7066,7 +7178,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             if (Array.isArray(ledgerEntries)) {
               ledgerEntries.forEach(ledger => {
                 const ledgerName = (ledger.ledgername || ledger.ledger || '').toLowerCase();
-                const ledgerAmt = parseAmount(ledger.amount || ledger.amt);
+                const ledgerAmt = parseAmount(ledger.amount || ledger.amt, ledger.isdeemedpositive);
                 const ispartyledger = (ledger.ispartyledger || ledger.isPartyLedger || '').toString().toLowerCase().trim();
                 if (ispartyledger === 'yes' && ledger.group) {
                   voucherLedgerGroup = ledger.group;
@@ -7085,7 +7197,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             const inventoryEntries = voucher.allinventoryentries || voucher.inventry || [];
             if (Array.isArray(inventoryEntries)) {
               inventoryEntries.forEach(inventoryItem => {
-                const itemAmount = parseAmount(inventoryItem.amount || inventoryItem.amt);
+                const itemAmount = parseAmount(inventoryItem.amount || inventoryItem.amt, inventoryItem.isdeemedpositive);
                 totalSalesAmount += itemAmount;
               });
             }
@@ -7100,7 +7212,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   return parseInt(cleaned, 10) || 0;
                 };
                 
-                const itemAmount = parseAmount(inventoryItem.amount || inventoryItem.amt);
+                const itemAmount = parseAmount(inventoryItem.amount || inventoryItem.amt, inventoryItem.isdeemedpositive);
                 const taxRatio = totalSalesAmount > 0 ? itemAmount / totalSalesAmount : 0;
                 const itemCgst = totalCgst * taxRatio;
                 const itemSgst = totalSgst * taxRatio;
@@ -7367,11 +7479,6 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     };
     if (!salesData || salesData.length === 0) return [];
     
-    // Handle yearCompare chart type
-    if (cardConfig.chartType === 'yearCompare') {
-      return generateYearCompareData(cardConfig, salesData);
-    }
-    
     // Handle companyCompare chart type - this will be handled separately as it's async
     if (cardConfig.chartType === 'companyCompare') {
       // Return a promise that will be handled in the component
@@ -7379,8 +7486,12 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     }
     
     if (!cardConfig || !cardConfig.groupBy || !cardConfig.valueField) {
-      console.warn('Invalid card config:', cardConfig);
-      return [];
+      // For yearCompare, we'll check after filtering to use filtered data
+      // Skip the groupBy/valueField check for yearCompare
+      if (cardConfig.chartType !== 'yearCompare') {
+        console.warn('Invalid card config:', cardConfig);
+        return [];
+      }
     }
     
     // Log data source for debugging
@@ -7581,6 +7692,12 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           expansionFactor: expandedData.length > 0 ? (expandedData.length / filteredData.length).toFixed(2) : '0'
         });
       }
+    }
+
+    // Handle yearCompare chart type after filtering is applied
+    // This ensures yearCompare respects all filters (card filters + cross-filters)
+    if (cardConfig.chartType === 'yearCompare') {
+      return generateYearCompareData(cardConfig, expandedData);
     }
 
     // Group data by selected field
@@ -8720,6 +8837,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             overrideDateFilter: cardConfig.overrideDateFilter || false,
             yearCompareCategory: cardConfig.yearCompareCategory,
             yearCompareValue: cardConfig.yearCompareValue,
+            yearCompareValues: cardConfig.yearCompareValues || (cardConfig.yearCompareValue ? [cardConfig.yearCompareValue] : []),
+            yearCompareAggregates: cardConfig.yearCompareAggregates || {},
             companyCompareCategory: cardConfig.companyCompareCategory,
             companyCompareValue: cardConfig.companyCompareValue,
             ...(cardConfig.cardConfig || {})
@@ -8755,7 +8874,28 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             updatedCard.overrideDateFilter = parsedCardConfig.overrideDateFilter || false;
             // Year compare specific properties
             updatedCard.yearCompareCategory = parsedCardConfig.yearCompareCategory;
-            updatedCard.yearCompareValue = parsedCardConfig.yearCompareValue;
+            // Support both single value (legacy) and multiple values (new)
+            if (parsedCardConfig.yearCompareValues && Array.isArray(parsedCardConfig.yearCompareValues)) {
+              updatedCard.yearCompareValues = parsedCardConfig.yearCompareValues;
+              updatedCard.yearCompareValue = parsedCardConfig.yearCompareValues[0] || parsedCardConfig.yearCompareValue;
+            } else {
+              updatedCard.yearCompareValue = parsedCardConfig.yearCompareValue;
+              if (parsedCardConfig.yearCompareValue) {
+                updatedCard.yearCompareValues = [parsedCardConfig.yearCompareValue];
+              }
+            }
+            // Handle per-field aggregates
+            if (parsedCardConfig.yearCompareAggregates && typeof parsedCardConfig.yearCompareAggregates === 'object') {
+              updatedCard.yearCompareAggregates = parsedCardConfig.yearCompareAggregates;
+            } else if (parsedCardConfig.aggregation) {
+              // Migrate from single aggregate to per-field aggregates
+              const values = updatedCard.yearCompareValues || [];
+              const aggregates = {};
+              values.forEach(field => {
+                aggregates[field] = parsedCardConfig.aggregation;
+              });
+              updatedCard.yearCompareAggregates = aggregates;
+            }
             // Company compare specific properties
             updatedCard.companyCompareCategory = parsedCardConfig.companyCompareCategory;
             updatedCard.companyCompareValue = parsedCardConfig.companyCompareValue;
@@ -8820,6 +8960,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             overrideDateFilter: cardConfig.overrideDateFilter || false,
             yearCompareCategory: cardConfig.yearCompareCategory,
             yearCompareValue: cardConfig.yearCompareValue,
+            yearCompareValues: cardConfig.yearCompareValues || (cardConfig.yearCompareValue ? [cardConfig.yearCompareValue] : []),
+            yearCompareAggregates: cardConfig.yearCompareAggregates || {},
             companyCompareCategory: cardConfig.companyCompareCategory,
             companyCompareValue: cardConfig.companyCompareValue,
             ...(cardConfig.cardConfig || {})
@@ -8850,6 +8992,32 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             newCard.dateGrouping = parsedCardConfig.dateGrouping || newCard.dateGrouping;
             newCard.mapSubType = parsedCardConfig.mapSubType || 'choropleth';
             newCard.overrideDateFilter = parsedCardConfig.overrideDateFilter || false;
+            // Year compare specific properties
+            if (parsedCardConfig.yearCompareValues && Array.isArray(parsedCardConfig.yearCompareValues)) {
+              newCard.yearCompareValues = parsedCardConfig.yearCompareValues;
+              newCard.yearCompareValue = parsedCardConfig.yearCompareValues[0] || parsedCardConfig.yearCompareValue;
+            } else {
+              newCard.yearCompareValue = parsedCardConfig.yearCompareValue;
+              if (parsedCardConfig.yearCompareValue) {
+                newCard.yearCompareValues = [parsedCardConfig.yearCompareValue];
+              }
+            }
+            newCard.yearCompareCategory = parsedCardConfig.yearCompareCategory;
+            // Handle per-field aggregates
+            if (parsedCardConfig.yearCompareAggregates && typeof parsedCardConfig.yearCompareAggregates === 'object') {
+              newCard.yearCompareAggregates = parsedCardConfig.yearCompareAggregates;
+            } else if (parsedCardConfig.aggregation) {
+              // Migrate from single aggregate to per-field aggregates
+              const values = newCard.yearCompareValues || [];
+              const aggregates = {};
+              values.forEach(field => {
+                aggregates[field] = parsedCardConfig.aggregation;
+              });
+              newCard.yearCompareAggregates = aggregates;
+            }
+            // Company compare specific properties
+            newCard.companyCompareCategory = parsedCardConfig.companyCompareCategory;
+            newCard.companyCompareValue = parsedCardConfig.companyCompareValue;
           }
           
           // Force date grouping to 'day' (daily) for all date-based cards
@@ -24637,8 +24805,31 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
   const [overrideDateFilter, setOverrideDateFilter] = useState(editingCard?.overrideDateFilter || false);
   // Year compare state
   const [yearCompareCategory, setYearCompareCategory] = useState(editingCard?.yearCompareCategory || 'month');
-  const [yearCompareValue, setYearCompareValue] = useState(editingCard?.yearCompareValue || '');
-  const [yearCompareAggregation, setYearCompareAggregation] = useState(editingCard?.aggregation || 'sum');
+  // Support both single value (legacy) and multiple values (new)
+  const [yearCompareValues, setYearCompareValues] = useState(() => {
+    if (editingCard?.yearCompareValues && Array.isArray(editingCard.yearCompareValues)) {
+      return editingCard.yearCompareValues;
+    } else if (editingCard?.yearCompareValue) {
+      // Migrate from single value to array
+      return [editingCard.yearCompareValue];
+    }
+    return [];
+  });
+  // Per-field aggregates: { fieldName: 'sum' | 'average' | 'count' | 'min' | 'max', ... }
+  const [yearCompareAggregates, setYearCompareAggregates] = useState(() => {
+    if (editingCard?.yearCompareAggregates && typeof editingCard.yearCompareAggregates === 'object') {
+      return editingCard.yearCompareAggregates;
+    } else if (editingCard?.aggregation) {
+      // Migrate from single aggregate to per-field aggregates
+      const aggregates = {};
+      const values = editingCard?.yearCompareValues || (editingCard?.yearCompareValue ? [editingCard.yearCompareValue] : []);
+      values.forEach(field => {
+        aggregates[field] = editingCard.aggregation;
+      });
+      return aggregates;
+    }
+    return {};
+  });
   
   // Company compare state
   const [companyCompareCategory, setCompanyCompareCategory] = useState(editingCard?.companyCompareCategory || []);
@@ -24827,8 +25018,28 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
       setOverrideDateFilter(editingCard.overrideDateFilter || false);
       // Set year compare fields
       setYearCompareCategory(editingCard.yearCompareCategory || 'month');
-      setYearCompareValue(editingCard.yearCompareValue || '');
-      setYearCompareAggregation(editingCard.aggregation || 'sum');
+      // Support both single value (legacy) and multiple values (new)
+      if (editingCard.yearCompareValues && Array.isArray(editingCard.yearCompareValues)) {
+        setYearCompareValues(editingCard.yearCompareValues);
+      } else if (editingCard.yearCompareValue) {
+        setYearCompareValues([editingCard.yearCompareValue]);
+      } else {
+        setYearCompareValues([]);
+      }
+      // Set per-field aggregates
+      if (editingCard.yearCompareAggregates && typeof editingCard.yearCompareAggregates === 'object') {
+        setYearCompareAggregates(editingCard.yearCompareAggregates);
+      } else if (editingCard.aggregation) {
+        // Migrate from single aggregate to per-field aggregates
+        const aggregates = {};
+        const values = editingCard.yearCompareValues || (editingCard.yearCompareValue ? [editingCard.yearCompareValue] : []);
+        values.forEach(field => {
+          aggregates[field] = editingCard.aggregation;
+        });
+        setYearCompareAggregates(aggregates);
+      } else {
+        setYearCompareAggregates({});
+      }
       
       // Company compare state
       const companies = JSON.parse(sessionStorage.getItem('allConnections') || '[]');
@@ -24854,8 +25065,8 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
       setSeriesFilterStates({});
       setOverrideDateFilter(false);
       setYearCompareCategory('month');
-      setYearCompareValue('');
-      setYearCompareAggregation('sum');
+      setYearCompareValues([]);
+      setYearCompareAggregates({});
       
       // Reset company compare state
       const companies = JSON.parse(sessionStorage.getItem('allConnections') || '[]');
@@ -25079,22 +25290,45 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
       // Date fields - ALWAYS categories, never values
       'date', 'cp_date', 'cpdate', 'cp date', 'transaction_date', 'transactiondate',
       'voucher_date', 'voucherdate', 'bill_date', 'billdate', 'invoice_date', 'invoicedate',
-      // Location fields
-      'pincode', 'pin_code', 'pin', 'zipcode', 'zip',
-      // Voucher/ID fields
+      // Location fields (even if numeric like pincode)
+      'pincode', 'pin_code', 'pin', 'zipcode', 'zip', 'postal_code', 'postalcode',
+      'region', 'state', 'country', 'city', 'district', 'taluk', 'area',
+      // Voucher/ID fields (numeric IDs should be categories, not values)
       'vouchernumber', 'vchno', 'voucher_number', 'voucher_no',
-      'masterid', 'master_id', 'alterid', 'alter_id',
-      'partyledgernameid', 'partyid', 'party_id', 'stockitemnameid', 'itemid', 'item_id',
-      'partygstin', 'gstin', 'gst_no', 'pan', 'pan_no',
+      'masterid', 'master_id', 'mstid', 'mst_id', 'alterid', 'alter_id',
+      'partyledgernameid', 'partyid', 'party_id', 'ledgerid', 'ledger_id',
+      'stockitemnameid', 'itemid', 'item_id', 'stockitemid', 'stock_item_id',
+      'partygstin', 'gstin', 'gst_no', 'gstinid', 'pan', 'pan_no',
       // Contact fields
-      'phone', 'mobile', 'telephone', 'contact',
+      'phone', 'mobile', 'telephone', 'contact', 'email',
       // Reference fields
-      'reference', 'ref_no', 'invoice_no', 'bill_no',
+      'reference', 'ref_no', 'invoice_no', 'bill_no', 'order_no', 'orderno',
       // Address fields
-      'address', 'basicbuyeraddress', 'buyer_address',
+      'address', 'basicbuyeraddress', 'buyer_address', 'shipping_address', 'billing_address',
       // Other category fields
       'reservedname', 'vchtype', 'vouchertypename', 'voucher_type',
-      'issales', 'is_sales'
+      'issales', 'is_sales', 'vouchertype', 'voucher_type_name',
+      // Name fields (should be categories)
+      'customer', 'partyledgername', 'party_name', 'ledgername', 'ledger_name',
+      'item', 'stockitemname', 'stock_item_name', 'itemname', 'item_name',
+      'category', 'stockgroup', 'stock_group', 'stockitemgroup', 'stock_item_group',
+      'salesperson', 'salespersonname', 'sales_person', 'sales_person_name',
+      'department', 'costcenter', 'cost_center', 'costcentre', 'cost_centre',
+      'ledgergroup', 'ledger_group', 'group', 'unit', 'uom', 'unit_of_measure',
+      // Status/flag fields
+      'status', 'type', 'category_type', 'item_type', 'voucher_status'
+    ];
+    
+    // Define fields that should ALWAYS be values (even if they might look like categories)
+    const forceValueFields = [
+      'amount', 'value', 'total', 'sum', 'quantity', 'qty', 'billedqty', 'billed_qty',
+      'actualqty', 'actual_qty', 'rate', 'price', 'unitrate', 'unit_rate',
+      'discount', 'tax', 'tax_amount', 'cgst', 'sgst', 'igst', 'cess',
+      'profit', 'margin', 'profit_margin', 'grossprofit', 'gross_profit',
+      'netamount', 'net_amount', 'roundoff', 'round_off', 'roundoffamount',
+      'grosscost', 'gross_cost', 'grosexpense', 'gross_expense',
+      'order_value', 'avg_order_value', 'avg_amount', 'avg_profit',
+      'profit_per_quantity', 'cost', 'expense', 'revenue', 'sales', 'income'
     ];
     
     // Special handling: Consolidate date fields (cp_date, date, etc.) into a single "date" field
@@ -25164,12 +25398,29 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
       }
       
       // Check if field should be forced to category
-      const shouldBeCategory = forceCategoryFields.some(cat => 
-        lowerKey === cat || lowerKey.includes(cat) || cat.includes(lowerKey)
-      );
+      const shouldBeCategory = forceCategoryFields.some(cat => {
+        const catLower = cat.toLowerCase();
+        // Exact match or key contains category term or category term contains key
+        return lowerKey === catLower || 
+               lowerKey.includes(catLower) || 
+               catLower.includes(lowerKey) ||
+               // Also check for ID patterns (ends with 'id' or '_id')
+               (lowerKey.endsWith('id') || lowerKey.endsWith('_id')) ||
+               // Check for name patterns
+               (lowerKey.endsWith('name') || lowerKey.endsWith('_name'));
+      });
       
-      // Determine if field is numeric based on type analysis (but respect forced categories)
-      const isNumeric = !shouldBeCategory && fieldTypes[key] === 'numeric';
+      // Check if field should be forced to value
+      const shouldBeValue = forceValueFields.some(val => {
+        const valLower = val.toLowerCase();
+        return lowerKey === valLower || 
+               lowerKey.includes(valLower) || 
+               valLower.includes(lowerKey);
+      });
+      
+      // Determine if field is numeric based on type analysis
+      // But respect forced categories and values first
+      const isNumeric = shouldBeValue || (!shouldBeCategory && fieldTypes[key] === 'numeric');
       
       // Determine default aggregation for numeric fields
       let defaultAggregation = 'sum';
@@ -25183,12 +25434,15 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
       
       // Create field entry - include ALL fields regardless of type
       // Mark as top-level voucher field (no hierarchy specified)
+      // Determine final type: force value takes precedence, then force category, then numeric check
+      const finalType = shouldBeValue ? 'value' : (shouldBeCategory ? 'category' : (isNumeric ? 'value' : 'category'));
+      
       const field = {
         value: key,
         label: getFieldLabel(key),
-        type: isNumeric ? 'value' : 'category',
+        type: finalType,
         hierarchy: 'voucher', // Explicitly mark as voucher-level field
-        ...(isNumeric && { aggregation: defaultAggregation }) // Add default aggregation for numeric fields
+        ...(finalType === 'value' && { aggregation: defaultAggregation }) // Add default aggregation for value fields
       };
       
       fieldsMap.set(lowerKey, field);
@@ -26009,18 +26263,25 @@ IMPORTANT RULES:
     
     // For yearCompare charts, validate differently
     if (chartType === 'yearCompare') {
-      if (!yearCompareValue) {
-        alert('Please select a value field for year-wise comparison');
+      if (!yearCompareValues || yearCompareValues.length === 0) {
+        alert('Please select at least one value field for year-wise comparison');
         return;
       }
+      // Ensure all selected values have aggregates
+      const completeAggregates = {};
+      yearCompareValues.forEach(field => {
+        completeAggregates[field] = yearCompareAggregates[field] || 'sum';
+      });
       
       const cardConfig = {
         title: cardTitle.trim(),
         chartType: 'yearCompare',
         yearCompareCategory: yearCompareCategory,
-        yearCompareValue: yearCompareValue,
-        valueField: yearCompareValue, // Required by API
-        aggregation: yearCompareAggregation, // Required by API
+        yearCompareValues: yearCompareValues, // Array of value fields
+        yearCompareValue: yearCompareValues[0], // Keep for backward compatibility
+        valueField: yearCompareValues[0], // Required by API (use first metric)
+        aggregation: completeAggregates[yearCompareValues[0]] || 'sum', // Required by API (use first metric's aggregate)
+        yearCompareAggregates: completeAggregates, // Per-field aggregates
         groupBy: yearCompareCategory, // Set groupBy to match category (month/quarter/week) - derived from date
         overrideDateFilter: overrideDateFilter
       };
@@ -26911,91 +27172,122 @@ IMPORTANT RULES:
                 fontSize: '13px',
                 fontWeight: '500',
                 color: '#475569',
-                marginBottom: '6px',
+                marginBottom: '8px',
                 letterSpacing: '0.01em'
               }}>
                 Values <span style={{ color: '#ef4444' }}>*</span>
               </label>
-              <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end' }}>
-                <select
-                  value={yearCompareValue}
-                  onChange={(e) => setYearCompareValue(e.target.value)}
-                  required
-                  style={{
-                    flex: 1,
-                    padding: '11px 14px',
-                    border: '1px solid #e2e8f0',
-                    borderRadius: '8px',
-                    fontSize: '14px',
-                    outline: 'none',
-                    transition: 'all 0.15s ease',
-                    background: '#ffffff',
-                    color: '#1e293b',
-                    boxSizing: 'border-box',
-                    cursor: 'pointer'
-                  }}
-                  onFocus={(e) => {
-                    e.target.style.borderColor = '#3b82f6';
-                    e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
-                  }}
-                  onBlur={(e) => {
-                    e.target.style.borderColor = '#e2e8f0';
-                    e.target.style.boxShadow = 'none';
-                  }}
-                >
-                  <option value="">Select a numeric field...</option>
-                  {allFields.filter(f => f.type === 'value').map(field => (
-                    <option key={field.value} value={field.value}>
-                      {field.label}
-                    </option>
-                  ))}
-                </select>
-                {yearCompareValue && (
-                  <div style={{ flex: '0 0 auto', minWidth: '140px' }}>
-                    <label style={{
-                      display: 'block',
-                      fontSize: '13px',
-                      fontWeight: '500',
-                      color: '#475569',
-                      marginBottom: '6px',
-                      letterSpacing: '0.01em'
+              <div style={{
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                padding: '12px',
+                background: '#ffffff',
+                maxHeight: '300px',
+                overflowY: 'auto'
+              }}>
+                {allFields.filter(f => f.type === 'value').map(field => {
+                  const isChecked = yearCompareValues.includes(field.value);
+                  return (
+                    <div key={field.value} style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '12px',
+                      padding: '8px 0',
+                      borderBottom: '1px solid #f1f5f9'
                     }}>
-                      Aggregation
-                    </label>
-                    <select
-                      value={yearCompareAggregation}
-                      onChange={(e) => setYearCompareAggregation(e.target.value)}
-                      style={{
-                        width: '100%',
-                        padding: '11px 14px',
-                        border: '1px solid #e2e8f0',
-                        borderRadius: '8px',
-                        fontSize: '14px',
-                        outline: 'none',
-                        transition: 'all 0.15s ease',
-                        background: '#ffffff',
-                        color: '#1e293b',
-                        boxSizing: 'border-box',
-                        cursor: 'pointer'
-                      }}
-                      onFocus={(e) => {
-                        e.target.style.borderColor = '#3b82f6';
-                        e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
-                      }}
-                      onBlur={(e) => {
-                        e.target.style.borderColor = '#e2e8f0';
-                        e.target.style.boxShadow = 'none';
-                      }}
-                    >
-                      <option value="sum">Sum</option>
-                      <option value="average">Average</option>
-                      <option value="count">Count</option>
-                      <option value="min">Min</option>
-                      <option value="max">Max</option>
-                    </select>
-                  </div>
-                )}
+                      <input
+                        type="checkbox"
+                        id={`yearCompare-${field.value}`}
+                        checked={isChecked}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setYearCompareValues([...yearCompareValues, field.value]);
+                            // Set default aggregate to 'sum' if not already set
+                            if (!yearCompareAggregates[field.value]) {
+                              setYearCompareAggregates({
+                                ...yearCompareAggregates,
+                                [field.value]: 'sum'
+                              });
+                            }
+                          } else {
+                            setYearCompareValues(yearCompareValues.filter(v => v !== field.value));
+                            // Remove aggregate when field is unchecked
+                            const newAggregates = { ...yearCompareAggregates };
+                            delete newAggregates[field.value];
+                            setYearCompareAggregates(newAggregates);
+                          }
+                        }}
+                        style={{
+                          width: '18px',
+                          height: '18px',
+                          cursor: 'pointer',
+                          accentColor: '#3b82f6'
+                        }}
+                      />
+                      <label
+                        htmlFor={`yearCompare-${field.value}`}
+                        style={{
+                          flex: 1,
+                          fontSize: '14px',
+                          color: '#1e293b',
+                          cursor: 'pointer',
+                          userSelect: 'none'
+                        }}
+                      >
+                        {field.label}
+                      </label>
+                      {isChecked && (
+                        <select
+                          value={yearCompareAggregates[field.value] || 'sum'}
+                          onChange={(e) => {
+                            setYearCompareAggregates({
+                              ...yearCompareAggregates,
+                              [field.value]: e.target.value
+                            });
+                          }}
+                          style={{
+                            minWidth: '120px',
+                            padding: '6px 10px',
+                            border: '1px solid #e2e8f0',
+                            borderRadius: '6px',
+                            fontSize: '13px',
+                            outline: 'none',
+                            transition: 'all 0.15s ease',
+                            background: '#ffffff',
+                            color: '#1e293b',
+                            boxSizing: 'border-box',
+                            cursor: 'pointer'
+                          }}
+                          onFocus={(e) => {
+                            e.target.style.borderColor = '#3b82f6';
+                            e.target.style.boxShadow = '0 0 0 2px rgba(59, 130, 246, 0.1)';
+                          }}
+                          onBlur={(e) => {
+                            e.target.style.borderColor = '#e2e8f0';
+                            e.target.style.boxShadow = 'none';
+                          }}
+                        >
+                          <option value="sum">Sum</option>
+                          <option value="average">Average</option>
+                          <option value="count">Count</option>
+                          <option value="min">Min</option>
+                          <option value="max">Max</option>
+                        </select>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
+              {yearCompareValues.length === 0 && (
+                <p style={{
+                  margin: '8px 0 0 0',
+                  fontSize: '12px',
+                  color: '#ef4444',
+                  fontStyle: 'italic'
+                }}>
+                  Please select at least one value field
+                </p>
+              )}
             </div>
           </>
         )}
@@ -29932,6 +30224,17 @@ const CustomCard = React.memo(({
 }) => {
   // Tooltip state for yearCompare charts - must be declared at the top (Rules of Hooks)
   const [yearCompareTooltip, setYearCompareTooltip] = useState(null);
+  // Metric selection state for yearCompare (when multiple metrics available)
+  const [selectedYearCompareMetric, setSelectedYearCompareMetric] = useState(() => {
+    // Default to first metric if available
+    if (card.yearCompareValues && Array.isArray(card.yearCompareValues) && card.yearCompareValues.length > 0) {
+      return card.yearCompareValues[0];
+    } else if (card.yearCompareValue) {
+      return card.yearCompareValue;
+    }
+    return null;
+  });
+  const [showAllYearCompareMetrics, setShowAllYearCompareMetrics] = useState(false);
   // Tooltip state for companyCompare charts
   const [companyCompareTooltip, setCompanyCompareTooltip] = useState(null);
   // Loading state for company compare data
@@ -29949,6 +30252,28 @@ const CustomCard = React.memo(({
     }
     return null;
   }, [card.overrideDateFilter, card.title, salesData.length]);
+  
+  // Update selected metric when card changes
+  useEffect(() => {
+    if (card.yearCompareValues && Array.isArray(card.yearCompareValues) && card.yearCompareValues.length > 0) {
+      if (!selectedYearCompareMetric || !card.yearCompareValues.includes(selectedYearCompareMetric)) {
+        setSelectedYearCompareMetric(card.yearCompareValues[0]);
+      }
+    } else if (card.yearCompareValue && !selectedYearCompareMetric) {
+      setSelectedYearCompareMetric(card.yearCompareValue);
+    }
+  }, [card.yearCompareValues, card.yearCompareValue, selectedYearCompareMetric]);
+  
+  // Update selected metric when card changes
+  useEffect(() => {
+    if (card.yearCompareValues && Array.isArray(card.yearCompareValues) && card.yearCompareValues.length > 0) {
+      if (!selectedYearCompareMetric || !card.yearCompareValues.includes(selectedYearCompareMetric)) {
+        setSelectedYearCompareMetric(card.yearCompareValues[0]);
+      }
+    } else if (card.yearCompareValue && !selectedYearCompareMetric) {
+      setSelectedYearCompareMetric(card.yearCompareValue);
+    }
+  }, [card.yearCompareValues, card.yearCompareValue]);
   
   useEffect(() => {
     if (card.chartType === 'companyCompare') {
@@ -30241,8 +30566,69 @@ const CustomCard = React.memo(({
       cardTitle: card.title,
       groupBy: card.groupBy,
       groupByLower,
-      dateGrouping: card.dateGrouping
+      dateGrouping: card.dateGrouping,
+      chartType: chartType
     });
+    
+    // Special handling for yearCompare and companyCompare charts
+    if (chartType === 'yearCompare') {
+      const category = card.yearCompareCategory || 'month';
+      // For yearCompare, clicking on a category filters by that category period
+      // The year filtering will be handled separately in the bar click handler
+      if (category === 'month') {
+        return {
+          onClick: (label) => {
+            // Label format: "Jan", "Feb", etc. - convert to YYYY-MM format
+            const monthMap = {
+              'Jan': '01', 'Feb': '02', 'Mar': '03', 'Apr': '04', 'May': '05', 'Jun': '06',
+              'Jul': '07', 'Aug': '08', 'Sep': '09', 'Oct': '10', 'Nov': '11', 'Dec': '12'
+            };
+            const monthAbbr = label;
+            const monthNum = monthMap[monthAbbr];
+            if (monthNum) {
+              // Use current year or get from selectedPeriod
+              const currentYear = selectedPeriod ? selectedPeriod.split('-')[0] : new Date().getFullYear();
+              setSelectedPeriod(`${currentYear}-${monthNum}`);
+            }
+          },
+          onBackClick: () => setSelectedPeriod(null),
+          showBackButton: selectedPeriod !== null,
+          currentValue: selectedPeriod
+        };
+      } else if (category === 'quarter') {
+        return {
+          onClick: (label) => {
+            // Label format: "Q1", "Q2", etc. - convert to quarter format
+            const match = label.match(/Q(\d)/);
+            if (match) {
+              const quarter = parseInt(match[1]);
+              const currentYear = selectedPeriod ? selectedPeriod.split('-')[0] : new Date().getFullYear();
+              setSelectedPeriod(`Q${quarter}-${currentYear}`);
+            }
+          },
+          onBackClick: () => setSelectedPeriod(null),
+          showBackButton: selectedPeriod !== null,
+          currentValue: selectedPeriod
+        };
+      } else if (category === 'week') {
+        return {
+          onClick: (label) => {
+            // Label format: "Week N" - approximate to month
+            const match = label.match(/Week\s+(\d+)/);
+            if (match) {
+              const weekNum = parseInt(match[1]);
+              const currentYear = selectedPeriod ? selectedPeriod.split('-')[0] : new Date().getFullYear();
+              const approxMonth = Math.min(12, Math.ceil(weekNum / 4.33));
+              const monthStr = String(approxMonth).padStart(2, '0');
+              setSelectedPeriod(`${currentYear}-${monthStr}`);
+            }
+          },
+          onBackClick: () => setSelectedPeriod(null),
+          showBackButton: selectedPeriod !== null,
+          currentValue: selectedPeriod
+        };
+      }
+    }
     
     // Map groupBy to the appropriate filter setter and current value (case-insensitive)
     if (groupByLower === 'customer') {
@@ -30554,6 +30940,8 @@ const CustomCard = React.memo(({
     card.id, // Include card.id to ensure recalculation when card is edited
     card.groupBy,
     card.dateGrouping,
+    card.yearCompareCategory, // Include for yearCompare charts
+    chartType, // Include chartType for yearCompare/companyCompare handling
     // Setter functions are stable, but we include them for clarity
     setSelectedCustomer,
     setSelectedItem,
@@ -30638,6 +31026,25 @@ const CustomCard = React.memo(({
     
     // Handle nested field paths (dot notation)
     if (fieldName.includes('.')) {
+      // For nested fields, try to get from original voucher structure first
+      const masterid = item.masterid || item.mstid;
+      if (masterid && window.__voucherLookupMap) {
+        const voucher = window.__voucherLookupMap.get(String(masterid));
+        if (voucher) {
+          // Use getNestedFieldValue on the original voucher
+          const value = getNestedFieldValue(voucher, fieldName);
+          if (value !== null && value !== undefined) {
+            return value;
+          }
+          // If single value didn't work, try getting all values (for array fields)
+          const values = getNestedFieldValues(voucher, fieldName);
+          if (values && Array.isArray(values) && values.length > 0) {
+            // Return first value, or the value that matches if we're filtering
+            return values[0];
+          }
+        }
+      }
+      // Fallback: try to get from flattened item (might work for some nested fields that were flattened)
       return getNestedFieldValue(item, fieldName);
     }
     
@@ -30854,10 +31261,58 @@ const CustomCard = React.memo(({
         const computedValue = getFieldValueLocal(sale, card.groupBy);
         if (!computedValue || !itemLabel) return false;
         return String(computedValue).trim().toLowerCase() === String(itemLabel).trim().toLowerCase();
-      } else {
-        // Case-insensitive matching for string fields
+      } else if (card.groupBy && card.groupBy.includes('.')) {
+        // Handle nested fields (e.g., ledgerentries.ledgername, allinventoryentries.stockitemname)
+        // For nested fields, we need to check the original voucher structure
+        const masterid = sale.masterid || sale.mstid;
+        if (masterid && window.__voucherLookupMap) {
+          const voucher = window.__voucherLookupMap.get(String(masterid));
+          if (voucher) {
+            // Use getNestedFieldValues to get all values from array fields
+            const values = getNestedFieldValues(voucher, card.groupBy);
+            if (values && Array.isArray(values) && values.length > 0) {
+              // Check if any value matches the label (case-insensitive)
+              return values.some(val => {
+                if (val === null || val === undefined || val === '') return false;
+                return String(val).trim().toLowerCase() === String(itemLabel).trim().toLowerCase();
+              });
+            }
+            // Fallback: try single value matching
+            const singleValue = getNestedFieldValue(voucher, card.groupBy);
+            if (singleValue !== null && singleValue !== undefined && singleValue !== '') {
+              return String(singleValue).trim().toLowerCase() === String(itemLabel).trim().toLowerCase();
+            }
+          }
+        }
+        // Fallback: try to get from flattened sale object
         const fieldValue = getFieldValueLocal(sale, card.groupBy);
-        if (!fieldValue || !itemLabel) return false;
+        if (fieldValue !== null && fieldValue !== undefined && fieldValue !== '') {
+          // Handle array values
+          if (Array.isArray(fieldValue)) {
+            return fieldValue.some(val => String(val).trim().toLowerCase() === String(itemLabel).trim().toLowerCase());
+          }
+          return String(fieldValue).trim().toLowerCase() === String(itemLabel).trim().toLowerCase();
+        }
+        return false;
+      } else {
+        // Case-insensitive matching for string or numeric fields
+        const fieldValue = getFieldValueLocal(sale, card.groupBy);
+        if (fieldValue === null || fieldValue === undefined || fieldValue === '') {
+          return false;
+        }
+        
+        // Handle numeric fields - convert both to numbers for comparison
+        // But also try string matching in case labels are formatted differently
+        if (typeof fieldValue === 'number' || (!isNaN(parseFloat(fieldValue)) && isFinite(fieldValue))) {
+          const numValue = typeof fieldValue === 'number' ? fieldValue : parseFloat(fieldValue);
+          const labelNum = parseFloat(itemLabel);
+          if (!isNaN(labelNum) && isFinite(labelNum)) {
+            // Allow small floating point differences for numeric comparison
+            return Math.abs(numValue - labelNum) < 0.01;
+          }
+        }
+        
+        // String comparison (case-insensitive)
         return String(fieldValue).trim().toLowerCase() === String(itemLabel).trim().toLowerCase();
       }
     };
@@ -30871,16 +31326,18 @@ const CustomCard = React.memo(({
     };
   };
 
+  // Helper to check if a field should have currency prefix
+  const isCurrencyField = (fieldName) => {
+    if (!fieldName) return false;
+    const currencyFields = ['amount', 'profit', 'tax_amount', 'order_value', 'avg_order_value', 
+                           'avg_amount', 'avg_profit', 'profit_per_quantity', 'cgst', 'sgst', 
+                           'roundoff', 'cost', 'expense', 'revenue', 'sales', 'income'];
+    return currencyFields.includes(fieldName.toLowerCase());
+  };
+  
   const valuePrefix = (card.chartType === 'yearCompare' || card.chartType === 'companyCompare')
-    ? ((card.yearCompareValue || card.companyCompareValue) === 'amount' || 
-       (card.yearCompareValue || card.companyCompareValue) === 'profit' || 
-       (card.yearCompareValue || card.companyCompareValue) === 'tax_amount' || 
-       (card.yearCompareValue || card.companyCompareValue) === 'order_value' || 
-       (card.yearCompareValue || card.companyCompareValue) === 'avg_order_value' || 
-       (card.yearCompareValue || card.companyCompareValue) === 'avg_amount' || 
-       (card.yearCompareValue || card.companyCompareValue) === 'avg_profit' || 
-       (card.yearCompareValue || card.companyCompareValue) === 'profit_per_quantity' ? '₹' : '')
-    : (card.valueField === 'amount' || card.valueField === 'profit' || card.valueField === 'tax_amount' || card.valueField === 'order_value' || card.valueField === 'avg_order_value' || card.valueField === 'avg_amount' || card.valueField === 'avg_profit' || card.valueField === 'profit_per_quantity' ? '₹' : '');
+    ? (isCurrencyField(card.yearCompareValue || card.companyCompareValue) ? '₹' : '')
+    : (isCurrencyField(card.valueField) ? '₹' : '');
 
   // Raw data button style (matching other cards)
   const rawDataIconButtonStyle = {
@@ -31474,7 +31931,55 @@ const CustomCard = React.memo(({
               }}
             />
           )}
-          {chartType === 'yearCompare' && cardData && cardData.data && (
+          {chartType === 'yearCompare' && cardData && cardData.data && (() => {
+            // Get available metrics (support both new and legacy format)
+            const availableMetrics = cardData.metrics || cardData.valueFields || (cardData.valueField ? [cardData.valueField] : []);
+            const hasMultipleMetrics = availableMetrics.length > 1;
+            const currentMetric = selectedYearCompareMetric || availableMetrics[0];
+            
+            // Get data for current metric or all metrics
+            let displayData = cardData.data; // Default to first metric (backward compatibility)
+            if (cardData.metricsData && !showAllYearCompareMetrics && currentMetric) {
+              // Use data for selected metric
+              displayData = cardData.metricsData[currentMetric] || cardData.data;
+            } else if (cardData.metricsData && showAllYearCompareMetrics) {
+              // Will render all metrics as lines
+              displayData = cardData.data; // Base data for bars (first metric)
+            }
+            
+            // Helper to format field name as label
+            const getMetricLabel = (metricValue) => {
+              if (!metricValue) return '';
+              // Convert field name to readable label (e.g., "amount" -> "Amount", "cgst" -> "CGST")
+              const commonLabels = {
+                'amount': 'Amount',
+                'profit': 'Profit',
+                'cgst': 'CGST',
+                'sgst': 'SGST',
+                'roundoff': 'Round Off',
+                'tax_amount': 'Tax Amount',
+                'quantity': 'Quantity',
+                'transactions': 'Transactions',
+                'unique_customers': 'Unique Customers',
+                'unique_items': 'Unique Items',
+                'unique_orders': 'Unique Orders'
+              };
+              
+              if (commonLabels[metricValue.toLowerCase()]) {
+                return commonLabels[metricValue.toLowerCase()];
+              }
+              
+              // Format: capitalize first letter and add spaces before capitals
+              return metricValue
+                .replace(/_/g, ' ')
+                .replace(/([A-Z])/g, ' $1')
+                .trim()
+                .split(' ')
+                .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+                .join(' ');
+            };
+            
+            return (
             <div style={{
               background: 'white',
               borderRadius: '12px',
@@ -31491,6 +31996,89 @@ const CustomCard = React.memo(({
                 flexShrink: 0
               }}>
                 {customHeader}
+                {/* Metric selector and toggle - only show if multiple metrics */}
+                {hasMultipleMetrics && (
+                  <div style={{
+                    display: 'flex',
+                    gap: '12px',
+                    alignItems: 'center',
+                    marginTop: '8px',
+                    padding: '8px',
+                    background: '#f8fafc',
+                    borderRadius: '6px',
+                    border: '1px solid #e2e8f0'
+                  }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <label style={{
+                        display: 'block',
+                        fontSize: '11px',
+                        fontWeight: '500',
+                        color: '#64748b',
+                        marginBottom: '4px'
+                      }}>
+                        Metric
+                      </label>
+                      <select
+                        value={currentMetric || ''}
+                        onChange={(e) => {
+                          setSelectedYearCompareMetric(e.target.value);
+                          setShowAllYearCompareMetrics(false);
+                        }}
+                        style={{
+                          width: '100%',
+                          padding: '6px 10px',
+                          border: '1px solid #e2e8f0',
+                          borderRadius: '6px',
+                          fontSize: '12px',
+                          background: '#ffffff',
+                          color: '#1e293b',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {availableMetrics.map(metric => (
+                          <option key={metric} value={metric}>
+                            {getMetricLabel(metric)}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      paddingTop: '20px'
+                    }}>
+                      <label style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        fontSize: '12px',
+                        color: '#475569',
+                        cursor: 'pointer',
+                        userSelect: 'none'
+                      }}>
+                        <input
+                          type="checkbox"
+                          checked={showAllYearCompareMetrics}
+                          onChange={(e) => {
+                            setShowAllYearCompareMetrics(e.target.checked);
+                            if (e.target.checked) {
+                              setSelectedYearCompareMetric(null);
+                            } else {
+                              setSelectedYearCompareMetric(availableMetrics[0]);
+                            }
+                          }}
+                          style={{
+                            cursor: 'pointer',
+                            width: '16px',
+                            height: '16px'
+                          }}
+                        />
+                        <span>Show all metrics</span>
+                      </label>
+                    </div>
+                  </div>
+                )}
               </div>
               <div style={{ 
                 flex: 1, 
@@ -31502,24 +32090,65 @@ const CustomCard = React.memo(({
                 padding: '8px',
                 position: 'relative'
               }}>
-                {cardData.data && cardData.data.length > 0 ? (
+                {displayData && displayData.length > 0 ? (
                   <>
                     <svg viewBox="0 0 600 360" preserveAspectRatio="none" style={{ width: '100%', height: '100%', minHeight: 0, maxHeight: '100%' }}>
                       {(() => {
-                        const maxValue = Math.max(...cardData.data.map(d => d.value), 1);
-                        const chartWidth = 560;
+                        // Check if we should use dual-axis mode (exactly 2 metrics, not showing all)
+                        const useDualAxis = availableMetrics.length === 2 && !showAllYearCompareMetrics && cardData.metricsData;
+                        
+                        // Calculate max values - separate for each metric if dual-axis
+                        let maxValue = Math.max(...displayData.map(d => d.value || 0), 1);
+                        let leftMaxValue = maxValue;
+                        let rightMaxValue = maxValue;
+                        
+                        if (useDualAxis) {
+                          // Calculate separate max values for each metric
+                          const leftMetric = availableMetrics[0];
+                          const rightMetric = availableMetrics[1];
+                          const leftMetricData = cardData.metricsData[leftMetric] || [];
+                          const rightMetricData = cardData.metricsData[rightMetric] || [];
+                          
+                          leftMaxValue = Math.max(...leftMetricData.map(d => d.value || 0), 1);
+                          rightMaxValue = Math.max(...rightMetricData.map(d => d.value || 0), 1);
+                        } else if (showAllYearCompareMetrics && cardData.metricsData) {
+                          // Include all metrics in max calculation
+                          Object.values(cardData.metricsData).forEach(metricData => {
+                            const metricMax = Math.max(...metricData.map(d => d.value || 0), 0);
+                            if (metricMax > maxValue) maxValue = metricMax;
+                          });
+                        }
+                        
+                        const chartWidth = useDualAxis ? 520 : 560; // Less width for dual-axis to make room for right axis
                         const chartHeight = 300;
-                        const chartStartX = 50; // Increased to make room for Y-axis labels
+                        const chartStartX = useDualAxis ? 60 : 50; // More space on left for dual-axis labels
+                        const chartEndX = useDualAxis ? chartStartX + chartWidth - 50 : chartStartX + chartWidth; // Space for right axis
                         const chartStartY = 20;
                         
                         // Group data by category
+                        // In dual-axis mode, we need data from both metrics
                         const dataByCategory = {};
-                        cardData.data.forEach(item => {
-                          if (!dataByCategory[item.category]) {
-                            dataByCategory[item.category] = [];
-                          }
-                          dataByCategory[item.category].push(item);
-                        });
+                        if (useDualAxis && cardData.metricsData) {
+                          // Combine data from both metrics
+                          const leftMetric = availableMetrics[0];
+                          const rightMetric = availableMetrics[1];
+                          const leftMetricData = cardData.metricsData[leftMetric] || [];
+                          const rightMetricData = cardData.metricsData[rightMetric] || [];
+                          
+                          [...leftMetricData, ...rightMetricData].forEach(item => {
+                            if (!dataByCategory[item.category]) {
+                              dataByCategory[item.category] = [];
+                            }
+                            dataByCategory[item.category].push(item);
+                          });
+                        } else {
+                          displayData.forEach(item => {
+                            if (!dataByCategory[item.category]) {
+                              dataByCategory[item.category] = [];
+                            }
+                            dataByCategory[item.category].push(item);
+                          });
+                        }
                         
                         const categories = cardData.categories || Object.keys(dataByCategory);
                         const years = cardData.years || [];
@@ -31537,17 +32166,65 @@ const CustomCard = React.memo(({
                           tickValues.push((maxValue / numTicks) * i);
                         }
                         
+                        // Generate separate tick values for dual-axis mode
+                        const leftTickValues = useDualAxis ? (() => {
+                          const ticks = [];
+                          for (let i = 0; i <= numTicks; i++) {
+                            ticks.push((leftMaxValue / numTicks) * i);
+                          }
+                          return ticks;
+                        })() : [];
+                        
+                        const rightTickValues = useDualAxis ? (() => {
+                          const ticks = [];
+                          for (let i = 0; i <= numTicks; i++) {
+                            ticks.push((rightMaxValue / numTicks) * i);
+                          }
+                          return ticks;
+                        })() : [];
+                        
+                        // Helper to get metric label
+                        const getMetricLabelLocal = (metricValue) => {
+                          if (!metricValue) return '';
+                          const commonLabels = {
+                            'amount': 'Amount',
+                            'profit': 'Profit',
+                            'cgst': 'CGST',
+                            'sgst': 'SGST',
+                            'roundoff': 'Round Off',
+                            'tax_amount': 'Tax Amount',
+                            'quantity': 'Quantity',
+                            'transactions': 'Transactions',
+                            'unique_customers': 'Unique Customers',
+                            'unique_items': 'Unique Items',
+                            'unique_orders': 'Unique Orders'
+                          };
+                          
+                          if (commonLabels[metricValue.toLowerCase()]) {
+                            return commonLabels[metricValue.toLowerCase()];
+                          }
+                          
+                          return metricValue
+                            .replace(/_/g, ' ')
+                            .replace(/([A-Z])/g, ' $1')
+                            .trim()
+                            .split(' ')
+                            .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+                            .join(' ');
+                        };
+                        
                         return (
                           <>
-                            {/* Horizontal grid lines */}
-                            {tickValues.map((tickValue, index) => {
-                              const y = chartStartY + chartHeight - (tickValue / maxValue) * chartHeight;
+                            {/* Horizontal grid lines - use left axis scale for grid */}
+                            {(useDualAxis ? leftTickValues : tickValues).map((tickValue, index) => {
+                              const scaleMax = useDualAxis ? leftMaxValue : maxValue;
+                              const y = chartStartY + chartHeight - (tickValue / scaleMax) * chartHeight;
                               return (
                                 <line
                                   key={`grid-${index}`}
                                   x1={chartStartX}
                                   y1={y}
-                                  x2={chartStartX + chartWidth}
+                                  x2={chartEndX}
                                   y2={y}
                                   stroke="#e5e7eb"
                                   strokeWidth="1"
@@ -31555,40 +32232,104 @@ const CustomCard = React.memo(({
                               );
                             })}
                             
-                            {/* Y-axis line */}
+                            {/* Left Y-axis line */}
                             <line
                               x1={chartStartX}
                               y1={chartStartY}
                               x2={chartStartX}
                               y2={chartStartY + chartHeight}
-                              stroke="#cbd5e1"
-                              strokeWidth="1"
+                              stroke="#3b82f6"
+                              strokeWidth="1.5"
                             />
                             
-                            {/* Y-axis ticks and labels */}
-                            {tickValues.map((tickValue, index) => {
-                              const y = chartStartY + chartHeight - (tickValue / maxValue) * chartHeight;
+                            {/* Left Y-axis ticks and labels */}
+                            {(useDualAxis ? leftTickValues : tickValues).map((tickValue, index) => {
+                              const scaleMax = useDualAxis ? leftMaxValue : maxValue;
+                              const y = chartStartY + chartHeight - (tickValue / scaleMax) * chartHeight;
+                              const leftMetricPrefix = useDualAxis ? (isCurrencyField(availableMetrics[0]) ? '₹' : '') : valuePrefix;
                               return (
-                                <g key={index}>
+                                <g key={`left-${index}`}>
                                   <line
                                     x1={chartStartX - 5}
                                     y1={y}
                                     x2={chartStartX}
                                     y2={y}
-                                    stroke="#cbd5e1"
+                                    stroke="#3b82f6"
                                     strokeWidth="1"
                                   />
                                   <text
                                     x={chartStartX - 8}
                                     y={y + 4}
                                     textAnchor="end"
-                                    style={{ fontSize: '10px', fill: '#64748b' }}
+                                    style={{ fontSize: '10px', fill: '#3b82f6', fontWeight: '500' }}
                                   >
-                                    {formatChartCompactValue(tickValue, '')}
+                                    {formatChartCompactValue(tickValue, leftMetricPrefix)}
                                   </text>
                                 </g>
                               );
                             })}
+                            
+                            {/* Left Y-axis label */}
+                            {useDualAxis && (
+                              <text
+                                x={chartStartX - 8}
+                                y={chartStartY - 5}
+                                textAnchor="end"
+                                style={{ fontSize: '11px', fill: '#3b82f6', fontWeight: '600' }}
+                              >
+                                {getMetricLabelLocal(availableMetrics[0])}
+                              </text>
+                            )}
+                            
+                            {/* Right Y-axis (only in dual-axis mode) */}
+                            {useDualAxis && (
+                              <>
+                                <line
+                                  x1={chartEndX}
+                                  y1={chartStartY}
+                                  x2={chartEndX}
+                                  y2={chartStartY + chartHeight}
+                                  stroke="#10b981"
+                                  strokeWidth="1.5"
+                                />
+                                
+                                {/* Right Y-axis ticks and labels */}
+                                {rightTickValues.map((tickValue, index) => {
+                                  const y = chartStartY + chartHeight - (tickValue / rightMaxValue) * chartHeight;
+                                  const rightMetricPrefix = isCurrencyField(availableMetrics[1]) ? '₹' : '';
+                                  return (
+                                    <g key={`right-${index}`}>
+                                      <line
+                                        x1={chartEndX}
+                                        y1={y}
+                                        x2={chartEndX + 5}
+                                        y2={y}
+                                        stroke="#10b981"
+                                        strokeWidth="1"
+                                      />
+                                      <text
+                                        x={chartEndX + 8}
+                                        y={y + 4}
+                                        textAnchor="start"
+                                        style={{ fontSize: '10px', fill: '#10b981', fontWeight: '500' }}
+                                      >
+                                        {formatChartCompactValue(tickValue, rightMetricPrefix)}
+                                      </text>
+                                    </g>
+                                  );
+                                })}
+                                
+                                {/* Right Y-axis label */}
+                                <text
+                                  x={chartEndX + 8}
+                                  y={chartStartY - 5}
+                                  textAnchor="start"
+                                  style={{ fontSize: '11px', fill: '#10b981', fontWeight: '600' }}
+                                >
+                                  {getMetricLabelLocal(availableMetrics[1])}
+                                </text>
+                              </>
+                            )}
                             
                             {categories.map((category, catIndex) => {
                               const x = chartStartX + catIndex * barWidth;
@@ -31597,49 +32338,272 @@ const CustomCard = React.memo(({
                               return (
                                 <g key={category}>
                                   {years.map((year, yearIndex) => {
-                                    const item = categoryData.find(d => d.year === year);
-                                    const value = item ? item.value : 0;
-                                    const barHeight = (value / maxValue) * chartHeight;
-                                    const barX = x + (barWidth - barGroupWidth) / 2 + yearIndex * barSpacing;
-                                    const barY = chartStartY + chartHeight - barHeight;
-                                    const color = yearColors[yearIndex % yearColors.length];
-                                    const formattedValue = formatChartValue(value, valuePrefix);
-                                    
-                                    return (
-                                      <g key={`${category}-${year}`}>
-                                        <rect
-                                          x={barX}
-                                          y={barY}
-                                          width={barSpacing * 0.9}
-                                          height={barHeight}
-                                          fill={color}
-                                          onClick={() => {
-                                            // Could add click handler for filtering
-                                          }}
-                                          onMouseEnter={(e) => {
-                                            const containerDiv = e.currentTarget.closest('div[style*="position: relative"]');
-                                            if (containerDiv) {
-                                              const containerRect = containerDiv.getBoundingClientRect();
-                                              const barRect = e.currentTarget.getBoundingClientRect();
-                                              const xPos = barRect.left - containerRect.left + barRect.width / 2;
-                                              const yPos = barRect.top - containerRect.top + barRect.height / 2;
+                                    // In dual-axis mode, render bars for both metrics side by side
+                                    if (useDualAxis) {
+                                      const leftMetric = availableMetrics[0];
+                                      const rightMetric = availableMetrics[1];
+                                      const leftItem = categoryData.find(d => d.year === year && d.metric === leftMetric);
+                                      const rightItem = categoryData.find(d => d.year === year && d.metric === rightMetric);
+                                      
+                                      const leftValue = leftItem ? leftItem.value : 0;
+                                      const rightValue = rightItem ? rightItem.value : 0;
+                                      
+                                      const leftBarHeight = (leftValue / leftMaxValue) * chartHeight;
+                                      const rightBarHeight = (rightValue / rightMaxValue) * chartHeight;
+                                      
+                                      const barGroupX = x + (barWidth - barGroupWidth) / 2;
+                                      const leftBarX = barGroupX + yearIndex * barSpacing;
+                                      const rightBarX = barGroupX + yearIndex * barSpacing + barSpacing / 2;
+                                      
+                                      const leftBarY = chartStartY + chartHeight - leftBarHeight;
+                                      const rightBarY = chartStartY + chartHeight - rightBarHeight;
+                                      
+                                      const leftColor = '#3b82f6'; // Blue for left axis
+                                      const rightColor = '#10b981'; // Green for right axis
+                                      
+                                      const leftFormattedValue = formatChartValue(leftValue, isCurrencyField(leftMetric) ? '₹' : '');
+                                      const rightFormattedValue = formatChartValue(rightValue, isCurrencyField(rightMetric) ? '₹' : '');
+                                      
+                                      return (
+                                        <g key={`${category}-${year}`}>
+                                          {/* Left metric bar */}
+                                          <rect
+                                            x={leftBarX}
+                                            y={leftBarY}
+                                            width={barSpacing * 0.4}
+                                            height={leftBarHeight}
+                                            fill={leftColor}
+                                            onClick={() => {
+                                              console.log('🔵 Year compare bar click (left):', { category, year, metric: leftMetric, cardTitle: card.title });
+                                              // Filter logic same as before
+                                              const categoryType = card.yearCompareCategory || 'month';
+                                              if (categoryType === 'month') {
+                                                const monthMap = {
+                                                  'Jan': '01', 'Feb': '02', 'Mar': '03', 'Apr': '04', 'May': '05', 'Jun': '06',
+                                                  'Jul': '07', 'Aug': '08', 'Sep': '09', 'Oct': '10', 'Nov': '11', 'Dec': '12'
+                                                };
+                                                const monthNum = monthMap[category];
+                                                if (monthNum) {
+                                                  setSelectedPeriod(`${year}-${monthNum}`);
+                                                }
+                                              } else if (categoryType === 'quarter') {
+                                                const quarterMatch = category.match(/Q(\d)/);
+                                                if (quarterMatch) {
+                                                  const quarter = quarterMatch[1];
+                                                  setSelectedPeriod(`Q${quarter}-${year}`);
+                                                }
+                                              } else if (categoryType === 'week') {
+                                                const weekMatch = category.match(/Week\s+(\d+)/);
+                                                if (weekMatch) {
+                                                  const weekNum = parseInt(weekMatch[1]);
+                                                  const approxMonth = Math.min(12, Math.ceil(weekNum / 4.33));
+                                                  const monthStr = String(approxMonth).padStart(2, '0');
+                                                  setSelectedPeriod(`${year}-${monthStr}`);
+                                                }
+                                              }
                                               
-                                              setYearCompareTooltip({
-                                                category,
-                                                year,
-                                                value: formattedValue,
-                                                x: xPos,
-                                                y: yPos
-                                              });
-                                            }
-                                          }}
-                                          onMouseLeave={() => {
-                                            setYearCompareTooltip(null);
-                                          }}
-                                          style={{ cursor: 'pointer' }}
-                                        />
-                                      </g>
-                                    );
+                                              const yearFilterKey = `yearFilter_${card.id}`;
+                                              if (setGenericFilters) {
+                                                setGenericFilters(prev => {
+                                                  const updated = { ...prev };
+                                                  updated[yearFilterKey] = String(year);
+                                                  try {
+                                                    sessionStorage.setItem('customCardGenericFilters', JSON.stringify(updated));
+                                                  } catch (e) {
+                                                    console.warn('Failed to persist generic filters:', e);
+                                                  }
+                                                  return updated;
+                                                });
+                                              }
+                                            }}
+                                            onMouseEnter={(e) => {
+                                              const containerDiv = e.currentTarget.closest('div[style*="position: relative"]');
+                                              if (containerDiv) {
+                                                const containerRect = containerDiv.getBoundingClientRect();
+                                                const barRect = e.currentTarget.getBoundingClientRect();
+                                                const xPos = barRect.left - containerRect.left + barRect.width / 2;
+                                                const yPos = barRect.top - containerRect.top + barRect.height / 2;
+                                                
+                                                setYearCompareTooltip({
+                                                  category,
+                                                  year: `${year} (${getMetricLabelLocal(leftMetric)})`,
+                                                  value: leftFormattedValue,
+                                                  x: xPos,
+                                                  y: yPos
+                                                });
+                                              }
+                                            }}
+                                            onMouseLeave={() => {
+                                              setYearCompareTooltip(null);
+                                            }}
+                                            style={{ cursor: 'pointer' }}
+                                          />
+                                          {/* Right metric bar */}
+                                          <rect
+                                            x={rightBarX}
+                                            y={rightBarY}
+                                            width={barSpacing * 0.4}
+                                            height={rightBarHeight}
+                                            fill={rightColor}
+                                            onClick={() => {
+                                              console.log('🔵 Year compare bar click (right):', { category, year, metric: rightMetric, cardTitle: card.title });
+                                              // Filter logic same as before
+                                              const categoryType = card.yearCompareCategory || 'month';
+                                              if (categoryType === 'month') {
+                                                const monthMap = {
+                                                  'Jan': '01', 'Feb': '02', 'Mar': '03', 'Apr': '04', 'May': '05', 'Jun': '06',
+                                                  'Jul': '07', 'Aug': '08', 'Sep': '09', 'Oct': '10', 'Nov': '11', 'Dec': '12'
+                                                };
+                                                const monthNum = monthMap[category];
+                                                if (monthNum) {
+                                                  setSelectedPeriod(`${year}-${monthNum}`);
+                                                }
+                                              } else if (categoryType === 'quarter') {
+                                                const quarterMatch = category.match(/Q(\d)/);
+                                                if (quarterMatch) {
+                                                  const quarter = quarterMatch[1];
+                                                  setSelectedPeriod(`Q${quarter}-${year}`);
+                                                }
+                                              } else if (categoryType === 'week') {
+                                                const weekMatch = category.match(/Week\s+(\d+)/);
+                                                if (weekMatch) {
+                                                  const weekNum = parseInt(weekMatch[1]);
+                                                  const approxMonth = Math.min(12, Math.ceil(weekNum / 4.33));
+                                                  const monthStr = String(approxMonth).padStart(2, '0');
+                                                  setSelectedPeriod(`${year}-${monthStr}`);
+                                                }
+                                              }
+                                              
+                                              const yearFilterKey = `yearFilter_${card.id}`;
+                                              if (setGenericFilters) {
+                                                setGenericFilters(prev => {
+                                                  const updated = { ...prev };
+                                                  updated[yearFilterKey] = String(year);
+                                                  try {
+                                                    sessionStorage.setItem('customCardGenericFilters', JSON.stringify(updated));
+                                                  } catch (e) {
+                                                    console.warn('Failed to persist generic filters:', e);
+                                                  }
+                                                  return updated;
+                                                });
+                                              }
+                                            }}
+                                            onMouseEnter={(e) => {
+                                              const containerDiv = e.currentTarget.closest('div[style*="position: relative"]');
+                                              if (containerDiv) {
+                                                const containerRect = containerDiv.getBoundingClientRect();
+                                                const barRect = e.currentTarget.getBoundingClientRect();
+                                                const xPos = barRect.left - containerRect.left + barRect.width / 2;
+                                                const yPos = barRect.top - containerRect.top + barRect.height / 2;
+                                                
+                                                setYearCompareTooltip({
+                                                  category,
+                                                  year: `${year} (${getMetricLabelLocal(rightMetric)})`,
+                                                  value: rightFormattedValue,
+                                                  x: xPos,
+                                                  y: yPos
+                                                });
+                                              }
+                                            }}
+                                            onMouseLeave={() => {
+                                              setYearCompareTooltip(null);
+                                            }}
+                                            style={{ cursor: 'pointer' }}
+                                          />
+                                        </g>
+                                      );
+                                    } else {
+                                      // Single-axis mode (original behavior)
+                                      const item = categoryData.find(d => d.year === year);
+                                      const value = item ? item.value : 0;
+                                      const barHeight = (value / maxValue) * chartHeight;
+                                      const barX = x + (barWidth - barGroupWidth) / 2 + yearIndex * barSpacing;
+                                      const barY = chartStartY + chartHeight - barHeight;
+                                      const color = yearColors[yearIndex % yearColors.length];
+                                      const formattedValue = formatChartValue(value, valuePrefix);
+                                      
+                                      return (
+                                        <g key={`${category}-${year}`}>
+                                          <rect
+                                            x={barX}
+                                            y={barY}
+                                            width={barSpacing * 0.9}
+                                            height={barHeight}
+                                            fill={color}
+                                            onClick={() => {
+                                              console.log('🔵 Year compare bar click:', { category, year, cardTitle: card.title });
+                                              // Filter by category (month/quarter/week) and year
+                                              const categoryType = card.yearCompareCategory || 'month';
+                                              
+                                              if (categoryType === 'month') {
+                                                // Convert month label to YYYY-MM format
+                                                const monthMap = {
+                                                  'Jan': '01', 'Feb': '02', 'Mar': '03', 'Apr': '04', 'May': '05', 'Jun': '06',
+                                                  'Jul': '07', 'Aug': '08', 'Sep': '09', 'Oct': '10', 'Nov': '11', 'Dec': '12'
+                                                };
+                                                const monthNum = monthMap[category];
+                                                if (monthNum) {
+                                                  setSelectedPeriod(`${year}-${monthNum}`);
+                                                }
+                                              } else if (categoryType === 'quarter') {
+                                                // Convert quarter label to QX-YYYY format
+                                                const quarterMatch = category.match(/Q(\d)/);
+                                                if (quarterMatch) {
+                                                  const quarter = quarterMatch[1];
+                                                  setSelectedPeriod(`Q${quarter}-${year}`);
+                                                }
+                                              } else if (categoryType === 'week') {
+                                                // Convert week to approximate month
+                                                const weekMatch = category.match(/Week\s+(\d+)/);
+                                                if (weekMatch) {
+                                                  const weekNum = parseInt(weekMatch[1]);
+                                                  const approxMonth = Math.min(12, Math.ceil(weekNum / 4.33));
+                                                  const monthStr = String(approxMonth).padStart(2, '0');
+                                                  setSelectedPeriod(`${year}-${monthStr}`);
+                                                }
+                                              }
+                                              
+                                              // Also set year filter using generic filters
+                                              // The year filter can be used to filter across all cards
+                                              const yearFilterKey = `yearFilter_${card.id}`;
+                                              if (setGenericFilters) {
+                                                setGenericFilters(prev => {
+                                                  const updated = { ...prev };
+                                                  updated[yearFilterKey] = String(year);
+                                                  try {
+                                                    sessionStorage.setItem('customCardGenericFilters', JSON.stringify(updated));
+                                                  } catch (e) {
+                                                    console.warn('Failed to persist generic filters:', e);
+                                                  }
+                                                  return updated;
+                                                });
+                                              }
+                                            }}
+                                            onMouseEnter={(e) => {
+                                              const containerDiv = e.currentTarget.closest('div[style*="position: relative"]');
+                                              if (containerDiv) {
+                                                const containerRect = containerDiv.getBoundingClientRect();
+                                                const barRect = e.currentTarget.getBoundingClientRect();
+                                                const xPos = barRect.left - containerRect.left + barRect.width / 2;
+                                                const yPos = barRect.top - containerRect.top + barRect.height / 2;
+                                                
+                                                setYearCompareTooltip({
+                                                  category,
+                                                  year,
+                                                  value: formattedValue,
+                                                  x: xPos,
+                                                  y: yPos
+                                                });
+                                              }
+                                            }}
+                                            onMouseLeave={() => {
+                                              setYearCompareTooltip(null);
+                                            }}
+                                            style={{ cursor: 'pointer' }}
+                                          />
+                                        </g>
+                                      );
+                                    }
                                   })}
                                   <text
                                     x={x + barWidth / 2}
@@ -31654,17 +32618,233 @@ const CustomCard = React.memo(({
                               );
                             })}
                             
+                            {/* Line chart overlay for all metrics (when showAllYearCompareMetrics is true) */}
+                            {showAllYearCompareMetrics && cardData.metricsData && availableMetrics.length > 1 && (() => {
+                              // Line colors for metrics (different from year colors)
+                              const metricColors = ['#8b5cf6', '#ec4899', '#06b6d4', '#f97316', '#84cc16', '#6366f1'];
+                              const lineWidth = 2;
+                              const pointRadius = 3;
+                              
+                              // Helper to format field name as label (same as above)
+                              const getMetricLabelLocal = (metricValue) => {
+                                if (!metricValue) return '';
+                                const commonLabels = {
+                                  'amount': 'Amount',
+                                  'profit': 'Profit',
+                                  'cgst': 'CGST',
+                                  'sgst': 'SGST',
+                                  'roundoff': 'Round Off',
+                                  'tax_amount': 'Tax Amount',
+                                  'quantity': 'Quantity',
+                                  'transactions': 'Transactions',
+                                  'unique_customers': 'Unique Customers',
+                                  'unique_items': 'Unique Items',
+                                  'unique_orders': 'Unique Orders'
+                                };
+                                
+                                if (commonLabels[metricValue.toLowerCase()]) {
+                                  return commonLabels[metricValue.toLowerCase()];
+                                }
+                                
+                                return metricValue
+                                  .replace(/_/g, ' ')
+                                  .replace(/([A-Z])/g, ' $1')
+                                  .trim()
+                                  .split(' ')
+                                  .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+                                  .join(' ');
+                              };
+                              
+                              return (
+                                <>
+                                  {availableMetrics.map((metric, metricIndex) => {
+                                    const metricData = cardData.metricsData[metric];
+                                    if (!metricData || metricData.length === 0) return null;
+                                    
+                                    const metricColor = metricColors[metricIndex % metricColors.length];
+                                    const opacity = 0.7; // Lighter strokes for overlay
+                                    
+                                    // Group metric data by year
+                                    const metricDataByYear = {};
+                                    metricData.forEach(item => {
+                                      if (!metricDataByYear[item.year]) {
+                                        metricDataByYear[item.year] = [];
+                                      }
+                                      metricDataByYear[item.year].push(item);
+                                    });
+                                    
+                                    return years.map((year, yearIndex) => {
+                                      const yearData = metricDataByYear[year] || [];
+                                      if (yearData.length === 0) return null;
+                                      
+                                      // Build path for this year's line
+                                      const points = categories.map((category, catIndex) => {
+                                        const item = yearData.find(d => d.category === category);
+                                        if (!item || item.value === 0) return null;
+                                        
+                                        const x = chartStartX + catIndex * barWidth + barWidth / 2;
+                                        const y = chartStartY + chartHeight - (item.value / maxValue) * chartHeight;
+                                        return { x, y, value: item.value, category };
+                                      }).filter(p => p !== null);
+                                      
+                                      if (points.length < 2) return null;
+                                      
+                                      // Draw line
+                                      const pathData = points.map((p, i) => 
+                                        `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`
+                                      ).join(' ');
+                                      
+                                      return (
+                                        <g key={`metric-${metric}-${year}`}>
+                                          {/* Line */}
+                                          <path
+                                            d={pathData}
+                                            fill="none"
+                                            stroke={metricColor}
+                                            strokeWidth={lineWidth}
+                                            strokeOpacity={opacity}
+                                            strokeDasharray={yearIndex % 2 === 0 ? '0' : '5,5'} // Alternate solid/dashed for different years
+                                            style={{ cursor: 'pointer' }}
+                                            onMouseEnter={(e) => {
+                                              const containerDiv = e.currentTarget.closest('div[style*="position: relative"]');
+                                              if (containerDiv) {
+                                                const pathRect = e.currentTarget.getBoundingClientRect();
+                                                const containerRect = containerDiv.getBoundingClientRect();
+                                                const xPos = pathRect.left - containerRect.left + pathRect.width / 2;
+                                                const yPos = pathRect.top - containerRect.top + pathRect.height / 2;
+                                                
+                                                setYearCompareTooltip({
+                                                  category: getMetricLabelLocal(metric),
+                                                  year: `${year} (${getMetricLabelLocal(metric)})`,
+                                                  value: formatChartValue(points[Math.floor(points.length / 2)].value, valuePrefix),
+                                                  x: xPos,
+                                                  y: yPos
+                                                });
+                                              }
+                                            }}
+                                            onMouseLeave={() => {
+                                              setYearCompareTooltip(null);
+                                            }}
+                                          />
+                                          {/* Points */}
+                                          {points.map((p, pointIndex) => (
+                                            <circle
+                                              key={`point-${metric}-${year}-${pointIndex}`}
+                                              cx={p.x}
+                                              cy={p.y}
+                                              r={pointRadius}
+                                              fill={metricColor}
+                                              fillOpacity={opacity}
+                                              stroke="white"
+                                              strokeWidth="1"
+                                              style={{ cursor: 'pointer' }}
+                                              onMouseEnter={(e) => {
+                                                const containerDiv = e.currentTarget.closest('div[style*="position: relative"]');
+                                                if (containerDiv) {
+                                                  const pointRect = e.currentTarget.getBoundingClientRect();
+                                                  const containerRect = containerDiv.getBoundingClientRect();
+                                                  const xPos = pointRect.left - containerRect.left;
+                                                  const yPos = pointRect.top - containerRect.top;
+                                                  
+                                                  setYearCompareTooltip({
+                                                    category: p.category,
+                                                    year: `${year} (${getMetricLabelLocal(metric)})`,
+                                                    value: formatChartValue(p.value, valuePrefix),
+                                                    x: xPos,
+                                                    y: yPos
+                                                  });
+                                                }
+                                              }}
+                                              onMouseLeave={() => {
+                                                setYearCompareTooltip(null);
+                                              }}
+                                            />
+                                          ))}
+                                        </g>
+                                      );
+                                    });
+                                  })}
+                                </>
+                              );
+                            })()}
+                            
                             {/* Legend */}
                             <g transform="translate(20, 5)">
-                              {years.map((year, index) => {
-                                const color = yearColors[index % yearColors.length];
-                                return (
-                                  <g key={year} transform={`translate(0, ${index * 20})`}>
-                                    <rect x="0" y="0" width="15" height="10" fill={color} />
-                                    <text x="20" y="9" style={{ fontSize: '12px', fill: '#1e293b' }}>{year}</text>
+                              {useDualAxis ? (
+                                // Dual-axis legend: show metrics with their axis colors
+                                <>
+                                  {/* Left axis metric */}
+                                  <g transform="translate(0, 0)">
+                                    <rect x="0" y="0" width="15" height="10" fill="#3b82f6" />
+                                    <text x="20" y="9" style={{ fontSize: '12px', fill: '#1e293b', fontWeight: '500' }}>
+                                      {getMetricLabelLocal(availableMetrics[0])} (Left Axis)
+                                    </text>
                                   </g>
-                                );
-                              })}
+                                  {/* Right axis metric */}
+                                  <g transform="translate(0, 20)">
+                                    <rect x="0" y="0" width="15" height="10" fill="#10b981" />
+                                    <text x="20" y="9" style={{ fontSize: '12px', fill: '#1e293b', fontWeight: '500' }}>
+                                      {getMetricLabelLocal(availableMetrics[1])} (Right Axis)
+                                    </text>
+                                  </g>
+                                  {/* Years legend */}
+                                  {years.map((year, index) => {
+                                    return (
+                                      <g key={year} transform={`translate(0, ${40 + index * 20})`}>
+                                        <line x1="0" y1="5" x2="15" y2="5" stroke="#64748b" strokeWidth="1" strokeDasharray={index % 2 === 0 ? '0' : '3,3'} />
+                                        <text x="20" y="8" style={{ fontSize: '11px', fill: '#64748b' }}>{year}</text>
+                                      </g>
+                                    );
+                                  })}
+                                </>
+                              ) : showAllYearCompareMetrics && cardData.metricsData && availableMetrics.length > 1 ? (
+                                // Two-level legend: metrics and years
+                                <>
+                                  {/* Metric legend */}
+                                  {availableMetrics.map((metric, metricIndex) => {
+                                    // Line colors for metrics (same as in line overlay)
+                                    const metricColorsLocal = ['#8b5cf6', '#ec4899', '#06b6d4', '#f97316', '#84cc16', '#6366f1'];
+                                    const metricColor = metricColorsLocal[metricIndex % metricColorsLocal.length];
+                                    return (
+                                      <g key={`metric-legend-${metric}`} transform={`translate(0, ${metricIndex * 25})`}>
+                                        <line x1="0" y1="5" x2="20" y2="5" stroke={metricColor} strokeWidth="2" strokeOpacity="0.7" />
+                                        <text x="25" y="8" style={{ fontSize: '11px', fill: '#1e293b', fontWeight: '500' }}>
+                                          {getMetricLabelLocal(metric)}
+                                        </text>
+                                        {/* Year sub-legend for this metric */}
+                                        {years.map((year, yearIndex) => (
+                                          <g key={`year-${metric}-${year}`} transform={`translate(150, ${yearIndex * 15})`}>
+                                            <line 
+                                              x1="0" 
+                                              y1="5" 
+                                              x2="15" 
+                                              y2="5" 
+                                              stroke={metricColor} 
+                                              strokeWidth="2" 
+                                              strokeOpacity="0.7"
+                                              strokeDasharray={yearIndex % 2 === 0 ? '0' : '5,5'}
+                                            />
+                                            <text x="20" y="8" style={{ fontSize: '10px', fill: '#64748b' }}>
+                                              {year}
+                                            </text>
+                                          </g>
+                                        ))}
+                                      </g>
+                                    );
+                                  })}
+                                </>
+                              ) : (
+                                // Single-level legend: just years (bars only)
+                                years.map((year, index) => {
+                                  const color = yearColors[index % yearColors.length];
+                                  return (
+                                    <g key={year} transform={`translate(0, ${index * 20})`}>
+                                      <rect x="0" y="0" width="15" height="10" fill={color} />
+                                      <text x="20" y="9" style={{ fontSize: '12px', fill: '#1e293b' }}>{year}</text>
+                                    </g>
+                                  );
+                                })
+                              )}
                             </g>
                           </>
                         );
@@ -31707,7 +32887,8 @@ const CustomCard = React.memo(({
                 )}
               </div>
             </div>
-          )}
+          );
+          })()}
           {chartType === 'companyCompare' && (
             companyCompareLoading ? (
               <div style={{
