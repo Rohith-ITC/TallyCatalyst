@@ -155,7 +155,18 @@ function AdminDashboard() {
   // Handle URL parameter changes
   useEffect(() => {
     const viewParam = searchParams.get('view');
-    if (viewParam && ['dashboard', 'tally-config', 'modules', 'roles', 'create-access', 'share-access', 'subscription'].includes(viewParam)) {
+    // List of all valid views including subscription module views
+    const validViews = [
+      'dashboard', 'tally-config', 'modules', 'roles', 'create-access', 'share-access', 'subscription',
+      // User subscription views
+      'subscription_plans', 'current_subscription', 'billing_history',
+      // Admin subscription views  
+      'payment_validation', 'approved_payments', 'rejected_payments', 'user_summary', 
+      'slab_management', 'partner_management', 'employee_management', 'bank_details',
+      // Employee/Partner portals
+      'employee_dashboard', 'partner_dashboard'
+    ];
+    if (viewParam && validViews.includes(viewParam)) {
       setView(viewParam);
     }
   }, [searchParams]);
