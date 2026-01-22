@@ -1,16 +1,54 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as echarts from 'echarts';
 import { PINCODE_COORDINATES } from '../data/pincodeCoordinates';
-import indiaStatesGeoJSON from '../data/indiaStates.json';
-import worldCountriesGeoJSON from '../data/worldCountries.json';
 
-// Try to import pincode shapefile, fallback to null if not available
+// GeoJSON data is loaded dynamically to avoid bundling large files (25MB+)
+// This prevents white screen issues in production due to large JS bundles
+let indiaStatesGeoJSON = null;
+let worldCountriesGeoJSON = null;
 let indiaPincodesGeoJSON = null;
-try {
-  indiaPincodesGeoJSON = require('../data/indiaPincodes.json');
-} catch (e) {
-  console.warn('⚠️ Pincode shapefile not found. Pincode choropleth maps will not be available.');
-}
+
+// Cache for loaded GeoJSON data to avoid re-fetching
+const geoJSONCache = {
+  india: null,
+  world: null,
+  indiaPincodes: null
+};
+
+// Dynamic loader for GeoJSON files
+const loadGeoJSON = async (type) => {
+  if (geoJSONCache[type]) {
+    return geoJSONCache[type];
+  }
+  
+  try {
+    let data;
+    switch (type) {
+      case 'india':
+        data = await import('../data/indiaStates.json');
+        geoJSONCache.india = data.default || data;
+        return geoJSONCache.india;
+      case 'world':
+        data = await import('../data/worldCountries.json');
+        geoJSONCache.world = data.default || data;
+        return geoJSONCache.world;
+      case 'indiaPincodes':
+        try {
+          data = await import('../data/indiaPincodes.json');
+          geoJSONCache.indiaPincodes = data.default || data;
+          return geoJSONCache.indiaPincodes;
+        } catch (e) {
+          console.warn('⚠️ Pincode shapefile not found. Pincode choropleth maps will not be available.');
+          return null;
+        }
+      default:
+        return null;
+    }
+  } catch (error) {
+    console.error(`Failed to load GeoJSON for ${type}:`, error);
+    return null;
+  }
+};
 
 const GeoMapChart = ({
   mapType = 'state', // 'pincode' | 'state' | 'country'
@@ -27,56 +65,96 @@ const GeoMapChart = ({
   const instanceRef = useRef(null);
   const [isReady, setIsReady] = useState(false);
   const [isMapRegistered, setIsMapRegistered] = useState(false);
+  const [isLoadingMap, setIsLoadingMap] = useState(false);
+  const [mapLoadError, setMapLoadError] = useState(null);
 
-  // Register maps with ECharts
+  // Register maps with ECharts - now async to load GeoJSON dynamically
   useEffect(() => {
-    if (mapType === 'state' && !echarts.getMap('india')) {
-      // Register with nameProperty to tell ECharts which property to use for matching
-      echarts.registerMap('india', indiaStatesGeoJSON, {
-        nameProperty: 'STATE'
-      });
+    const registerMaps = async () => {
+      setIsLoadingMap(true);
+      setMapLoadError(null);
       
-      // Log available STATE values for debugging
-      const stateNames = indiaStatesGeoJSON.features.map(f => f.properties.STATE).filter(Boolean);
-      console.log('🗺️ Registered India map with STATE property');
-      console.log('🗺️ Available STATE names in GeoJSON:', stateNames.sort());
-      setIsMapRegistered(true);
-    } else if (mapType === 'country' && !echarts.getMap('world')) {
-      // Register with nameProperty to tell ECharts which property to use for matching
-      echarts.registerMap('world', worldCountriesGeoJSON, {
-        nameProperty: 'name'
-      });
-      
-      // Log available country names for debugging
-      const countryNames = worldCountriesGeoJSON.features.map(f => f.properties.name).filter(Boolean);
-      console.log('🗺️ Registered World map with name property');
-      console.log('🗺️ Available country names in GeoJSON:', countryNames.slice(0, 20).sort());
-      setIsMapRegistered(true);
-    } else if (mapType === 'pincode') {
-      if (chartSubType === 'choropleth' && indiaPincodesGeoJSON && !echarts.getMap('indiaPincodes')) {
-        // Register pincode shapefile for choropleth maps
-        echarts.registerMap('indiaPincodes', indiaPincodesGeoJSON, {
-          nameProperty: 'pincode'
-        });
-        
-        // Log available pincode count for debugging
-        const pincodeCount = indiaPincodesGeoJSON.features.length;
-        console.log('🗺️ Registered India Pincode map with pincode property');
-        console.log(`🗺️ Total pincodes in GeoJSON: ${pincodeCount}`);
-        setIsMapRegistered(true);
-      } else if (chartSubType === 'scatter' && !echarts.getMap('india')) {
-        // For pincode scatter, we still need India base map
-        echarts.registerMap('india', indiaStatesGeoJSON, {
-          nameProperty: 'STATE'
-        });
-        setIsMapRegistered(true);
-      } else {
-        setIsMapRegistered(true);
+      try {
+        if (mapType === 'state' && !echarts.getMap('india')) {
+          const geoData = await loadGeoJSON('india');
+          if (!geoData) {
+            setMapLoadError('Failed to load India map data');
+            setIsLoadingMap(false);
+            return;
+          }
+          indiaStatesGeoJSON = geoData;
+          
+          // Register with nameProperty to tell ECharts which property to use for matching
+          echarts.registerMap('india', indiaStatesGeoJSON, {
+            nameProperty: 'STATE'
+          });
+          
+          // Log available STATE values for debugging
+          const stateNames = indiaStatesGeoJSON.features.map(f => f.properties.STATE).filter(Boolean);
+          console.log('🗺️ Registered India map with STATE property');
+          console.log('🗺️ Available STATE names in GeoJSON:', stateNames.sort());
+          setIsMapRegistered(true);
+        } else if (mapType === 'country' && !echarts.getMap('world')) {
+          const geoData = await loadGeoJSON('world');
+          if (!geoData) {
+            setMapLoadError('Failed to load World map data');
+            setIsLoadingMap(false);
+            return;
+          }
+          worldCountriesGeoJSON = geoData;
+          
+          // Register with nameProperty to tell ECharts which property to use for matching
+          echarts.registerMap('world', worldCountriesGeoJSON, {
+            nameProperty: 'name'
+          });
+          
+          // Log available country names for debugging
+          const countryNames = worldCountriesGeoJSON.features.map(f => f.properties.name).filter(Boolean);
+          console.log('🗺️ Registered World map with name property');
+          console.log('🗺️ Available country names in GeoJSON:', countryNames.slice(0, 20).sort());
+          setIsMapRegistered(true);
+        } else if (mapType === 'pincode') {
+          if (chartSubType === 'choropleth' && !echarts.getMap('indiaPincodes')) {
+            const geoData = await loadGeoJSON('indiaPincodes');
+            if (geoData) {
+              indiaPincodesGeoJSON = geoData;
+              // Register pincode shapefile for choropleth maps
+              echarts.registerMap('indiaPincodes', indiaPincodesGeoJSON, {
+                nameProperty: 'pincode'
+              });
+              
+              // Log available pincode count for debugging
+              const pincodeCount = indiaPincodesGeoJSON.features.length;
+              console.log('🗺️ Registered India Pincode map with pincode property');
+              console.log(`🗺️ Total pincodes in GeoJSON: ${pincodeCount}`);
+            }
+            setIsMapRegistered(true);
+          } else if (chartSubType === 'scatter' && !echarts.getMap('india')) {
+            // For pincode scatter, we still need India base map
+            const geoData = await loadGeoJSON('india');
+            if (geoData) {
+              indiaStatesGeoJSON = geoData;
+              echarts.registerMap('india', indiaStatesGeoJSON, {
+                nameProperty: 'STATE'
+              });
+            }
+            setIsMapRegistered(true);
+          } else {
+            setIsMapRegistered(true);
+          }
+        } else {
+          setIsMapRegistered(true);
+        }
+      } catch (error) {
+        console.error('Error registering maps:', error);
+        setMapLoadError('Failed to load map data');
+      } finally {
+        setIsLoadingMap(false);
       }
-    } else {
-      setIsMapRegistered(true);
-    }
-  }, [mapType]);
+    };
+    
+    registerMaps();
+  }, [mapType, chartSubType]);
 
   // Initialize ECharts instance with dimension checking
   useEffect(() => {
@@ -781,6 +859,78 @@ const GeoMapChart = ({
   }, []);
 
   const isMobileState = isMobile || window.innerWidth <= 768;
+
+  // Show loading state while GeoJSON is being fetched
+  if (isLoadingMap) {
+    return (
+      <div style={{
+        background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
+        borderRadius: isMobileState ? '12px' : '16px',
+        padding: '20px',
+        border: '1px solid #e2e8f0',
+        boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        height: height || 500,
+        width: '100%'
+      }}>
+        {customHeader && (
+          <div style={{ marginBottom: '20px', width: '100%' }}>
+            {customHeader}
+          </div>
+        )}
+        <div style={{ textAlign: 'center' }}>
+          <div style={{
+            width: '40px',
+            height: '40px',
+            border: '3px solid #e2e8f0',
+            borderTopColor: '#3b82f6',
+            borderRadius: '50%',
+            animation: 'spin 1s linear infinite',
+            margin: '0 auto 16px'
+          }} />
+          <p style={{ color: '#64748b', fontSize: '14px', margin: 0 }}>Loading map data...</p>
+        </div>
+        <style>{`
+          @keyframes spin {
+            to { transform: rotate(360deg); }
+          }
+        `}</style>
+      </div>
+    );
+  }
+
+  // Show error state if map failed to load
+  if (mapLoadError) {
+    return (
+      <div style={{
+        background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
+        borderRadius: isMobileState ? '12px' : '16px',
+        padding: '20px',
+        border: '1px solid #fecaca',
+        boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        height: height || 500,
+        width: '100%'
+      }}>
+        {customHeader && (
+          <div style={{ marginBottom: '20px', width: '100%' }}>
+            {customHeader}
+          </div>
+        )}
+        <div style={{ textAlign: 'center' }}>
+          <span className="material-icons" style={{ fontSize: '48px', color: '#ef4444', marginBottom: '16px', display: 'block' }}>error_outline</span>
+          <p style={{ color: '#dc2626', fontSize: '16px', margin: '0 0 8px', fontWeight: 600 }}>Map Load Error</p>
+          <p style={{ color: '#64748b', fontSize: '14px', margin: 0 }}>{mapLoadError}</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{

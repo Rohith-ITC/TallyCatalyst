@@ -53,6 +53,10 @@ const CacheManagement = () => {
   const [interruptedProgress, setInterruptedProgress] = useState(null);
   // Track dismissed interruptions to prevent showing modal again after user closes it
   const dismissedInterruptionsRef = useRef(new Set());
+  
+  // Download warning modal state
+  const [showDownloadWarning, setShowDownloadWarning] = useState(false);
+  const [pendingDownloadAction, setPendingDownloadAction] = useState(null);
 
   // Detect if running on mobile
   const isMobile = useIsMobile();
@@ -481,9 +485,8 @@ const CacheManagement = () => {
     showCacheViewerRef.current = showCacheViewer;
   }, [showCacheViewer]);
 
-  const handleRefreshSessionCache = async (type) => {
-    if (!selectedCompany) return;
-
+  // Internal execution function for ledger cache
+  const executeRefreshSessionCache = async (type) => {
     setRefreshingSession(prev => ({ ...prev, [type]: true }));
     setMessage({ type: '', text: '' });
 
@@ -507,6 +510,15 @@ const CacheManagement = () => {
     } finally {
       setRefreshingSession(prev => ({ ...prev, [type]: false }));
     }
+  };
+
+  // Wrapper that shows warning before ledger cache download
+  const handleRefreshSessionCache = async (type) => {
+    if (!selectedCompany) return;
+
+    // Show warning modal before starting download
+    setPendingDownloadAction({ type: 'ledgerCache', ledgerType: type });
+    setShowDownloadWarning(true);
   };
 
   const loadCacheExpiry = () => {
@@ -1053,22 +1065,42 @@ const CacheManagement = () => {
   }, [selectedCompany]);
 
   // Resume modal handlers
+  // Wrapper function that shows warning before download
+  const downloadCompleteData = async (isUpdate = false, startFresh = false) => {
+    // If already downloading, just execute
+    if (cacheSyncManager.isSyncInProgress() && cacheSyncManager.isSameCompany(selectedCompany)) {
+      await executeDownloadCompleteData(isUpdate, startFresh);
+      return;
+    }
+    
+    // Show warning modal before starting download
+    setPendingDownloadAction({ isUpdate, startFresh });
+    setShowDownloadWarning(true);
+  };
+
+
+  // Handle cancel from warning modal
+  const handleDownloadWarningCancel = () => {
+    setShowDownloadWarning(false);
+    setPendingDownloadAction(null);
+  };
+
   const handleResumeContinue = async () => {
     setShowResumeModal(false);
     // Continue from where it left off - progress is already saved, sync will resume automatically
-    await downloadCompleteData(false, false);
+    await executeDownloadCompleteData(false, false);
   };
 
   const handleResumeStartFresh = async () => {
     setShowResumeModal(false);
     // Clear progress and start fresh
     await clearDownloadProgress(selectedCompany);
-    await downloadCompleteData(false, true);
+    await executeDownloadCompleteData(false, true);
     setInterruptedProgress(null);
   };
 
-  // Download complete sales data
-  const downloadCompleteData = async (isUpdate = false, startFresh = false) => {
+  // Download complete sales data (internal function - actual execution)
+  const executeDownloadCompleteData = async (isUpdate = false, startFresh = false) => {
     console.log('='.repeat(60));
     console.log('🎯 DOWNLOAD COMPLETE DATA CALLED');
     console.log('='.repeat(60));
@@ -1203,25 +1235,8 @@ const CacheManagement = () => {
   };
 
   // Download session cache for external users (date range specific)
-  const downloadSessionCacheForExternalUser = async () => {
-    if (!selectedCompany) {
-      setMessage({ type: 'error', text: 'No company selected' });
-      return;
-    }
-
-    if (!externalUserFromDate || !externalUserToDate) {
-      setMessage({ type: 'error', text: 'Please select both From Date and To Date' });
-      return;
-    }
-
-    // Validate date range
-    const fromDate = new Date(externalUserFromDate);
-    const toDate = new Date(externalUserToDate);
-    if (fromDate > toDate) {
-      setMessage({ type: 'error', text: 'From Date must be before or equal to To Date' });
-      return;
-    }
-
+  // Internal function for session cache download
+  const executeDownloadSessionCache = async () => {
     setDownloadingSessionCache(true);
     setMessage({ type: '', text: '' });
     setDownloadProgress({ current: 0, total: 1, message: 'Fetching data for selected date range...' });
@@ -1296,6 +1311,50 @@ const CacheManagement = () => {
       setDownloadProgress({ current: 0, total: 0, message: '' });
     } finally {
       setDownloadingSessionCache(false);
+    }
+  };
+
+  // Wrapper function for session cache that shows warning
+  const downloadSessionCacheForExternalUser = async () => {
+    if (!selectedCompany) {
+      setMessage({ type: 'error', text: 'No company selected' });
+      return;
+    }
+
+    if (!externalUserFromDate || !externalUserToDate) {
+      setMessage({ type: 'error', text: 'Please select both From Date and To Date' });
+      return;
+    }
+
+    // Validate date range
+    const fromDate = new Date(externalUserFromDate);
+    const toDate = new Date(externalUserToDate);
+    if (fromDate > toDate) {
+      setMessage({ type: 'error', text: 'From Date must be before or equal to To Date' });
+      return;
+    }
+
+    // Show warning modal before starting download
+    setPendingDownloadAction({ type: 'sessionCache' });
+    setShowDownloadWarning(true);
+  };
+
+  // Update the confirm handler to support all download types
+  const handleDownloadWarningConfirmUpdated = async () => {
+    setShowDownloadWarning(false);
+    if (pendingDownloadAction) {
+      if (pendingDownloadAction.type === 'sessionCache') {
+        setPendingDownloadAction(null);
+        await executeDownloadSessionCache();
+      } else if (pendingDownloadAction.type === 'ledgerCache') {
+        const ledgerType = pendingDownloadAction.ledgerType;
+        setPendingDownloadAction(null);
+        await executeRefreshSessionCache(ledgerType);
+      } else {
+        const { isUpdate, startFresh } = pendingDownloadAction;
+        setPendingDownloadAction(null);
+        await executeDownloadCompleteData(isUpdate, startFresh);
+      }
     }
   };
 
@@ -3233,6 +3292,204 @@ const CacheManagement = () => {
         }
       `}</style>
 
+      {/* Download Warning Modal */}
+      {showDownloadWarning && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0, 0, 0, 0.6)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 10000,
+          padding: isMobile ? '16px' : '24px'
+        }}>
+          <div style={{
+            background: '#fff',
+            borderRadius: '16px',
+            padding: isMobile ? '24px' : '32px',
+            maxWidth: '500px',
+            width: '100%',
+            boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)',
+            animation: 'slideIn 0.3s ease-out'
+          }}>
+            {/* Warning Icon */}
+            <div style={{
+              width: isMobile ? '56px' : '64px',
+              height: isMobile ? '56px' : '64px',
+              borderRadius: '50%',
+              background: 'linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              margin: '0 auto 20px',
+              boxShadow: '0 4px 12px rgba(251, 191, 36, 0.3)'
+            }}>
+              <span className="material-icons" style={{ 
+                fontSize: isMobile ? '32px' : '36px', 
+                color: '#fff',
+                fontWeight: 'bold'
+              }}>
+                warning
+              </span>
+            </div>
+
+            {/* Title */}
+            <h2 style={{
+              margin: '0 0 16px 0',
+              fontSize: isMobile ? '20px' : '22px',
+              fontWeight: 700,
+              color: '#1e293b',
+              textAlign: 'center'
+            }}>
+              Important: Keep App Active
+            </h2>
+
+            {/* Warning Message */}
+            <div style={{
+              background: '#fef3c7',
+              border: '2px solid #fbbf24',
+              borderRadius: '12px',
+              padding: isMobile ? '16px' : '20px',
+              marginBottom: '24px'
+            }}>
+              <p style={{
+                margin: '0 0 12px 0',
+                fontSize: isMobile ? '15px' : '16px',
+                color: '#92400e',
+                fontWeight: 600,
+                lineHeight: '1.6'
+              }}>
+                Please do NOT during download:
+              </p>
+              <ul style={{
+                margin: 0,
+                paddingLeft: '20px',
+                color: '#92400e',
+                fontSize: isMobile ? '14px' : '15px',
+                lineHeight: '1.8'
+              }}>
+                <li>Close this app or browser tab</li>
+                <li>Switch to other apps or tabs</li>
+                <li>Lock your phone or turn off screen</li>
+                <li>Turn off your device</li>
+                <li>Put the app in background</li>
+              </ul>
+              <p style={{
+                margin: '12px 0 0 0',
+                fontSize: isMobile ? '13px' : '14px',
+                color: '#78350f',
+                fontStyle: 'italic',
+                fontWeight: 500
+              }}>
+                ⚠️ Interrupting the download may cause data corruption or incomplete downloads.
+              </p>
+            </div>
+
+            {/* Additional Info */}
+            <div style={{
+              background: '#e0f2fe',
+              borderRadius: '8px',
+              padding: isMobile ? '12px' : '16px',
+              marginBottom: '24px',
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: '10px'
+            }}>
+              <span className="material-icons" style={{ 
+                fontSize: '20px', 
+                color: '#0284c7',
+                flexShrink: 0,
+                marginTop: '2px'
+              }}>
+                info
+              </span>
+              <p style={{
+                margin: 0,
+                fontSize: isMobile ? '13px' : '14px',
+                color: '#075985',
+                lineHeight: '1.6'
+              }}>
+                Keep this screen open and your device active throughout the download process. 
+                You can monitor the progress bar below.
+              </p>
+            </div>
+
+            {/* Buttons */}
+            <div style={{
+              display: 'flex',
+              gap: '12px',
+              flexDirection: isMobile ? 'column' : 'row'
+            }}>
+              <button
+                onClick={handleDownloadWarningCancel}
+                style={{
+                  flex: 1,
+                  padding: isMobile ? '14px 20px' : '12px 24px',
+                  border: '2px solid #cbd5e1',
+                  background: '#fff',
+                  color: '#475569',
+                  borderRadius: '10px',
+                  fontSize: isMobile ? '15px' : '16px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = '#f1f5f9';
+                  e.currentTarget.style.borderColor = '#94a3b8';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = '#fff';
+                  e.currentTarget.style.borderColor = '#cbd5e1';
+                }}
+              >
+                <span className="material-icons" style={{ fontSize: '18px' }}>close</span>
+                Cancel
+              </button>
+              <button
+                onClick={handleDownloadWarningConfirmUpdated}
+                style={{
+                  flex: 1,
+                  padding: isMobile ? '14px 20px' : '12px 24px',
+                  border: 'none',
+                  background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                  color: '#fff',
+                  borderRadius: '10px',
+                  fontSize: isMobile ? '15px' : '16px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  boxShadow: '0 4px 12px rgba(16, 185, 129, 0.3)',
+                  transition: 'all 0.2s',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = 'translateY(-2px)';
+                  e.currentTarget.style.boxShadow = '0 6px 16px rgba(16, 185, 129, 0.4)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = 'translateY(0)';
+                  e.currentTarget.style.boxShadow = '0 4px 12px rgba(16, 185, 129, 0.3)';
+                }}
+              >
+                <span className="material-icons" style={{ fontSize: '18px' }}>check_circle</span>
+                I Understand, Continue
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Resume Download Modal */}
       <ResumeDownloadModal
         isOpen={showResumeModal}
@@ -3249,6 +3506,19 @@ const CacheManagement = () => {
         progress={interruptedProgress || { current: 0, total: 0 }}
         companyName={interruptedProgress?.companyName || selectedCompany?.company || 'this company'}
       />
+
+      <style>{`
+        @keyframes slideIn {
+          from {
+            opacity: 0;
+            transform: translateY(-20px) scale(0.95);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+          }
+        }
+      `}</style>
     </div>
   );
 };
