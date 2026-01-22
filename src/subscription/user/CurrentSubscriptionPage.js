@@ -1,12 +1,13 @@
 // Current Subscription Dashboard - Show user's current subscription status
 import React, { useState, useEffect } from 'react';
-import { getCurrentSubscription } from '../api/subscriptionApi';
+import { getCurrentSubscription, getPendingSubscription } from '../api/subscriptionApi';
 import StatusBadge from '../components/StatusBadge';
 import UsageCard from '../components/UsageCard';
 import './CurrentSubscriptionPage.css';
 
 const CurrentSubscriptionPage = ({ onUpgrade, onDowngrade, onViewBilling }) => {
   const [subscription, setSubscription] = useState(null);
+  const [pendingSubscription, setPendingSubscription] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -18,10 +19,18 @@ const CurrentSubscriptionPage = ({ onUpgrade, onDowngrade, onViewBilling }) => {
     try {
       setLoading(true);
       setError(null);
-      const data = await getCurrentSubscription();
-      console.log('📊 Subscription data received:', data);
-      console.log('📊 External users data:', data?.usage?.external_users);
-      setSubscription(data);
+      
+      // Fetch both current and pending subscriptions
+      const [currentData, pendingData] = await Promise.all([
+        getCurrentSubscription(),
+        getPendingSubscription()
+      ]);
+      
+      console.log('📊 Current subscription:', currentData);
+      console.log('📊 Pending subscription:', pendingData);
+      
+      setSubscription(currentData);
+      setPendingSubscription(pendingData);
     } catch (err) {
       console.error('Error fetching subscription:', err);
       setError('Failed to load subscription details. Please try again.');
@@ -41,11 +50,36 @@ const CurrentSubscriptionPage = ({ onUpgrade, onDowngrade, onViewBilling }) => {
 
   const getDaysRemaining = (endDate) => {
     if (!endDate) return null;
+    
+    // Parse the end date - handle both ISO strings and date objects
     const end = new Date(endDate);
+    
+    // Check if date is valid
+    if (isNaN(end.getTime())) {
+      console.error('Invalid end date:', endDate);
+      return null;
+    }
+    
     const now = new Date();
-    const diffTime = end - now;
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    return Math.max(0, diffDays);
+    
+    // Set both dates to start of day (midnight) in local timezone for accurate day comparison
+    const endStartOfDay = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+    const nowStartOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    
+    const diffTime = endStartOfDay - nowStartOfDay;
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+    
+    console.log('Date calculation:', {
+      endDate,
+      parsedEnd: end,
+      endStartOfDay,
+      nowStartOfDay,
+      diffTime,
+      diffDays
+    });
+    
+    // Return the number of days (can be negative if expired)
+    return diffDays;
   };
 
   if (loading) {
@@ -78,19 +112,184 @@ const CurrentSubscriptionPage = ({ onUpgrade, onDowngrade, onViewBilling }) => {
         <div className="no-subscription-container">
           <h2>No Active Subscription</h2>
           <p>You don't have an active subscription. Please purchase a plan to continue.</p>
-          {onUpgrade && (
-            <button onClick={() => onUpgrade()} className="purchase-button">
-              Purchase Plan
-            </button>
-          )}
+          <button 
+            onClick={() => {
+              const basename = process.env.REACT_APP_HOMEPAGE || '';
+              const path = basename ? `${basename}/admin-dashboard?view=subscription_plans&from=my_subscription` : `/admin-dashboard?view=subscription_plans&from=my_subscription`;
+              window.location.href = path;
+            }}
+            className="purchase-button"
+          >
+            Subscription Plan
+          </button>
         </div>
       </div>
     );
   }
 
-  const daysRemaining = subscription.days_remaining !== undefined 
-    ? subscription.days_remaining 
-    : getDaysRemaining(subscription.end_date);
+  // Calculate days remaining from end_date (always calculate fresh for accuracy)
+  // Only use API's days_remaining as fallback if end_date is not available
+  let daysRemaining = null;
+  if (subscription.end_date) {
+    daysRemaining = getDaysRemaining(subscription.end_date);
+  } else if (subscription.days_remaining !== undefined) {
+    daysRemaining = subscription.days_remaining;
+  }
+  
+  // For display purposes, treat negative as null
+  const daysRemainingForDisplay = daysRemaining !== null && daysRemaining < 0 ? null : daysRemaining;
+  
+  // Debug logging
+  console.log('Subscription status calculation:', {
+    end_date: subscription.end_date,
+    days_remaining_from_api: subscription.days_remaining,
+    calculated_days_remaining: daysRemaining,
+    is_trial: subscription.is_trial,
+    status_from_api: subscription.status
+  });
+  
+  // Determine actual status - check if subscription has expired
+  const getActualStatus = () => {
+    // If it's a trial, use the original status (no changes for trial)
+    if (subscription.is_trial) {
+      return subscription.status;
+    }
+    
+    // For non-trial subscriptions, always calculate status based on days remaining from end_date
+    // If we don't have daysRemaining calculated, fallback to API status
+    if (daysRemaining === null || daysRemaining === undefined) {
+      console.warn('Could not calculate days remaining, using API status:', subscription.status);
+      return subscription.status;
+    }
+    
+    // Check if expired (negative days)
+    if (daysRemaining < 0) {
+      return 'expired';
+    }
+    
+    // If expires today (0 days remaining)
+    if (daysRemaining === 0) {
+      return 'expiry_today';
+    }
+    
+    // If expires tomorrow (1 day remaining)
+    if (daysRemaining === 1) {
+      return 'expiry_tomorrow';
+    }
+    
+    // If expires within 7 days (2-7 days remaining)
+    if (daysRemaining > 1 && daysRemaining <= 7) {
+      return 'about_to_expire';
+    }
+    
+    // If more than 7 days remaining, show as Active
+    if (daysRemaining > 7) {
+      return 'active';
+    }
+    
+    // Fallback to API status (should not reach here)
+    console.warn('Unexpected daysRemaining value:', daysRemaining);
+    return subscription.status;
+  };
+  
+  const actualStatus = getActualStatus();
+  
+  console.log('Final status:', actualStatus, 'for daysRemaining:', daysRemaining);
+
+  // Get current user count from subscription (for renewal, use the limit/purchased count, not current usage)
+  const getCurrentUserCount = () => {
+    // First check purchased_user_count (most reliable)
+    if (subscription.purchased_user_count !== undefined && subscription.purchased_user_count > 0) {
+      return subscription.purchased_user_count;
+    }
+    // If not available, use the limit from usage (this is the total purchased users)
+    if (subscription.usage && subscription.usage.internal_users) {
+      return subscription.usage.internal_users.limit || subscription.usage.internal_users.current || 1;
+    }
+    return 1;
+  };
+
+  // Handle Renewal button click
+  const handleRenewal = () => {
+    const currentUserCount = getCurrentUserCount();
+    const billingCycle = subscription.billing_cycle || 'monthly';
+    const planId = subscription.internal_slab_id;
+    
+    // Navigate to subscription plans with renewal parameters (will auto-show payment modal)
+    const basename = process.env.REACT_APP_HOMEPAGE || '';
+    const params = new URLSearchParams({
+      view: 'subscription_plans',
+      renewal: 'true',
+      plan_id: planId || '',
+      billing_cycle: billingCycle,
+      user_count: currentUserCount.toString()
+    });
+    const path = basename 
+      ? `${basename}/admin-dashboard?${params.toString()}` 
+      : `/admin-dashboard?${params.toString()}`;
+    window.location.href = path;
+  };
+
+  // Handle Increase Users button click
+  const handleIncreaseUsers = () => {
+    const currentUserCount = getCurrentUserCount();
+    const billingCycle = subscription.billing_cycle || 'monthly';
+    const planId = subscription.internal_slab_id;
+    const endDate = subscription.end_date;
+    
+    // Navigate to subscription plans with increase users parameters
+    const basename = process.env.REACT_APP_HOMEPAGE || '';
+    const params = new URLSearchParams({
+      view: 'subscription_plans',
+      increase_users: 'true',
+      plan_id: planId || '',
+      billing_cycle: billingCycle,
+      user_count: currentUserCount.toString(),
+      end_date: endDate || ''
+    });
+    const path = basename 
+      ? `${basename}/admin-dashboard?${params.toString()}` 
+      : `/admin-dashboard?${params.toString()}`;
+    window.location.href = path;
+  };
+
+  // Determine which buttons to show based on subscription state
+  const shouldShowButtons = () => {
+    // If trial: Show only "Subscription Plan" button
+    if (subscription.is_trial) {
+      return {
+        showRenewal: false,
+        showIncreaseUsers: false,
+        showSubscriptionPlan: true
+      };
+    }
+    
+    // If not trial and has validity (not expired)
+    if (!subscription.is_trial && daysRemainingForDisplay !== null && daysRemainingForDisplay >= 0) {
+      return {
+        showRenewal: true,
+        showIncreaseUsers: true,
+        showSubscriptionPlan: true // Always show Subscription Plan button
+      };
+    }
+    
+    // If expired, show renewal button
+    if (!subscription.is_trial && (daysRemainingForDisplay === null || daysRemainingForDisplay < 0)) {
+      return {
+        showRenewal: true,
+        showIncreaseUsers: false,
+        showSubscriptionPlan: true // Always show Subscription Plan button
+      };
+    }
+    
+    return {
+      showRenewal: false,
+      showIncreaseUsers: false,
+      showSubscriptionPlan: true // Always show Subscription Plan button
+    };
+  };
+
+  const buttonConfig = shouldShowButtons();
 
   return (
     <div className="current-subscription-page">
@@ -104,8 +303,8 @@ const CurrentSubscriptionPage = ({ onUpgrade, onDowngrade, onViewBilling }) => {
             <div>
               <h2>Subscription Status</h2>
               <StatusBadge 
-                status={subscription.status} 
-                daysRemaining={subscription.is_trial ? daysRemaining : null}
+                status={actualStatus} 
+                daysRemaining={subscription.is_trial ? daysRemainingForDisplay : null}
               />
             </div>
           </div>
@@ -124,29 +323,85 @@ const CurrentSubscriptionPage = ({ onUpgrade, onDowngrade, onViewBilling }) => {
             </div>
 
             <div className="detail-row">
-              <span className="detail-label">Start Date:</span>
-              <span className="detail-value">{formatDate(subscription.start_date)}</span>
-            </div>
-
-            <div className="detail-row">
-              <span className="detail-label">End Date:</span>
+              <span className="detail-label">Subscription Valid till:</span>
               <span className="detail-value">{formatDate(subscription.end_date)}</span>
             </div>
 
-            {subscription.is_trial && daysRemaining !== null && (
+            {subscription.is_trial && (
               <div className="detail-row">
-                <span className="detail-label">Trial Days Remaining:</span>
-                <span className="detail-value highlight">{daysRemaining} days</span>
+                <span className="detail-label">Trial Status:</span>
+                <span className={`detail-value ${daysRemainingForDisplay === null ? 'expired' : daysRemainingForDisplay === 0 ? 'warning' : 'highlight'}`}>
+                  {daysRemainingForDisplay === null 
+                    ? 'Trial Expired' 
+                    : daysRemainingForDisplay === 0
+                    ? 'Expires Today'
+                    : `${daysRemainingForDisplay} ${daysRemainingForDisplay === 1 ? 'day' : 'days'} remaining`}
+                </span>
               </div>
             )}
 
-            {!subscription.is_trial && subscription.end_date && (
+            {/* Show purchased user count if available */}
+            {subscription.purchased_user_count !== undefined && (
               <div className="detail-row">
-                <span className="detail-label">Renewal Date:</span>
-                <span className="detail-value">{formatDate(subscription.end_date)}</span>
+                <span className="detail-label">Purchased Users:</span>
+                <span className="detail-value">{subscription.purchased_user_count}</span>
+              </div>
+            )}
+
+            {/* Show wallet balance only when user has balance */}
+            {subscription.wallet_balance !== undefined && subscription.wallet_balance > 0 && (
+              <div className="detail-row">
+                <span className="detail-label">Wallet Balance:</span>
+                <span className="detail-value highlight">₹{subscription.wallet_balance.toLocaleString('en-IN')}</span>
               </div>
             )}
           </div>
+
+          {/* Pending Subscription Section */}
+          {pendingSubscription && (
+            <div className="pending-subscription-section">
+              <div className="pending-subscription-header">
+                <h3>Pending Subscription Change</h3>
+                <StatusBadge status={pendingSubscription.status} />
+              </div>
+              <div className="pending-subscription-details">
+                {pendingSubscription.new_slab && (
+                  <div className="detail-row">
+                    <span className="detail-label">New Plan:</span>
+                    <span className="detail-value">
+                      {pendingSubscription.new_slab.name || `Slab ${pendingSubscription.new_slab.id}`}
+                    </span>
+                  </div>
+                )}
+                {pendingSubscription.previous_slab && (
+                  <div className="detail-row">
+                    <span className="detail-label">Current Plan:</span>
+                    <span className="detail-value">
+                      {pendingSubscription.previous_slab.name || `Slab ${pendingSubscription.previous_slab.id}`}
+                    </span>
+                  </div>
+                )}
+                {pendingSubscription.purchased_user_count !== undefined && (
+                  <div className="detail-row">
+                    <span className="detail-label">Selected Users:</span>
+                    <span className="detail-value">{pendingSubscription.purchased_user_count}</span>
+                  </div>
+                )}
+                {pendingSubscription.credit_amount !== null && pendingSubscription.credit_amount !== undefined && (
+                  <div className="detail-row">
+                    <span className="detail-label">Credit Amount:</span>
+                    <span className="detail-value highlight">₹{pendingSubscription.credit_amount.toLocaleString('en-IN')}</span>
+                  </div>
+                )}
+                <div className="pending-note">
+                  <p>
+                    Your subscription change is pending approval. 
+                    {subscription ? ' Your current plan remains active until approval.' : ' You will be notified once approved.'}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {subscription.usage && (
@@ -168,8 +423,28 @@ const CurrentSubscriptionPage = ({ onUpgrade, onDowngrade, onViewBilling }) => {
                 const freeAvailable = subscription.usage.external_users.free_available ?? 0;
                 const paidCount = subscription.usage.external_users.paid_count ?? 0;
                 const current = freeUsed + paidCount;
-                const limit = freeAvailable + freeUsed; // Total free allocation
-                const remaining = freeAvailable;
+                
+                // Calculate total free external users allocation
+                // The limit should be ONLY free external users, not including internal users
+                // If freeAvailable + freeUsed includes internal users (e.g., 43 = 3 internal + 40 free external),
+                // we need to recalculate based on purchased_user_count only
+                const purchasedUserCount = subscription.purchased_user_count || 
+                  (subscription.usage?.internal_users?.limit || 0);
+                const freeExternalPerInternal = 10; // Default: 10 free external users per internal user
+                
+                // Calculate expected limit: purchased users * free external per internal
+                const expectedFreeExternalLimit = purchasedUserCount * freeExternalPerInternal;
+                
+                // If the API returns a limit that seems to include internal users (limit > expected),
+                // use the expected limit instead
+                const calculatedLimit = freeAvailable + freeUsed;
+                const limit = (calculatedLimit > expectedFreeExternalLimit && purchasedUserCount > 0) 
+                  ? expectedFreeExternalLimit 
+                  : calculatedLimit;
+                
+                // Calculate remaining: limit - current (not just freeAvailable)
+                // remaining should be the total remaining external users (limit - current)
+                const remaining = Math.max(0, limit - current);
                 
                 return (
                   <UsageCard
@@ -185,23 +460,34 @@ const CurrentSubscriptionPage = ({ onUpgrade, onDowngrade, onViewBilling }) => {
         )}
       </div>
 
-      {(onUpgrade || (onDowngrade && subscription.status === 'active') || onViewBilling) && (
+      {(buttonConfig.showRenewal || buttonConfig.showIncreaseUsers || buttonConfig.showSubscriptionPlan) && (
         <div className="subscription-actions">
-          {onUpgrade && (
-            <button onClick={() => onUpgrade()} className="action-button action-button-primary">
-              Upgrade Plan
+          {buttonConfig.showSubscriptionPlan && (
+            <button 
+              onClick={() => {
+                const basename = process.env.REACT_APP_HOMEPAGE || '';
+                const path = basename ? `${basename}/admin-dashboard?view=subscription_plans&from=my_subscription` : `/admin-dashboard?view=subscription_plans&from=my_subscription`;
+                window.location.href = path;
+              }}
+              className="action-button action-button-primary"
+            >
+              Subscription Plan
             </button>
           )}
-          
-          {onDowngrade && subscription.status === 'active' && (
-            <button onClick={() => onDowngrade()} className="action-button action-button-secondary">
-              Downgrade Plan
+          {buttonConfig.showRenewal && (
+            <button 
+              onClick={handleRenewal}
+              className="action-button action-button-primary"
+            >
+              Renewal
             </button>
           )}
-          
-          {onViewBilling && (
-            <button onClick={() => onViewBilling()} className="action-button action-button-outline">
-              View Billing History
+          {buttonConfig.showIncreaseUsers && (
+            <button 
+              onClick={handleIncreaseUsers}
+              className="action-button action-button-secondary"
+            >
+              Upgrade/Downgrade
             </button>
           )}
         </div>

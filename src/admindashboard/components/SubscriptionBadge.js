@@ -40,7 +40,10 @@ function SubscriptionBadge() {
   const daysRemaining = isTrial ? getTrialDaysRemaining(trialEndDate) : null;
 
   const getStatusColor = () => {
-    if (isTrial) return '#f59e0b';
+    if (isTrial) {
+      // Show red if trial expired, amber for active (including today)
+      return daysRemaining === null ? '#ef4444' : '#f59e0b';
+    }
     if (isAtLimit) return '#ef4444';
     if (isNearLimit) return '#f59e0b';
     if (status === 'active') return '#22c55e';
@@ -48,7 +51,15 @@ function SubscriptionBadge() {
   };
 
   const getStatusText = () => {
-    if (isTrial) return `Trial - ${daysRemaining} days left`;
+    if (isTrial) {
+      if (daysRemaining === null) {
+        return 'Trial Expired';
+      }
+      if (daysRemaining === 0) {
+        return 'Trial (Expires Today)';
+      }
+      return `Trial - ${daysRemaining} ${daysRemaining === 1 ? 'day' : 'days'} left`;
+    }
     if (isAtLimit) return 'Limit Reached';
     if (isNearLimit) return 'Near Limit';
     return planName || 'Active';

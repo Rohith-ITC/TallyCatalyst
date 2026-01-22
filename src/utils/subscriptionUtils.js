@@ -28,14 +28,20 @@ export const checkUserLimit = async () => {
  * @returns {number} Days remaining
  */
 export const getTrialDaysRemaining = (trialEndDate) => {
-  if (!trialEndDate) return 0;
+  if (!trialEndDate) return null;
   
   const endDate = new Date(trialEndDate);
   const now = new Date();
-  const diffTime = endDate - now;
+  
+  // Set both dates to start of day (midnight) for accurate day comparison
+  const endStartOfDay = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
+  const nowStartOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  
+  const diffTime = endStartOfDay - nowStartOfDay;
   const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
   
-  return Math.max(0, diffDays);
+  // Return null if expired (negative days), but allow 0 days (expires today is still valid today)
+  return diffDays >= 0 ? diffDays : null;
 };
 
 /**

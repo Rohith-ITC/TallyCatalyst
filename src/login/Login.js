@@ -51,6 +51,14 @@ function Login({ onLogin }) {
       if (data.user_type) {
         sessionStorage.setItem('user_type', data.user_type);
       }
+      // Store employee code if available
+      if (data.employee && data.employee.code) {
+        sessionStorage.setItem('employee_code', data.employee.code);
+      }
+      // Store partner code if available
+      if (data.partner && data.partner.code) {
+        sessionStorage.setItem('partner_code', data.partner.code);
+      }
       // Call onLogin with user info
       onLogin({ name: data.name, email: data.email, token: data.token, is_first_login: data.is_first_login, user_type: data.user_type });
       if (data.is_first_login === 1) {

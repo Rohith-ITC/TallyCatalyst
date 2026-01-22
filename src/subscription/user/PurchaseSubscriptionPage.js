@@ -7,8 +7,8 @@ const PurchaseSubscriptionPage = ({ selectedPlan, billingCycle, onSuccess, onCan
   const [formData, setFormData] = useState({
     internal_slab_id: selectedPlan?.id || '',
     billing_cycle: billingCycle || 'monthly',
-    partner_id: null,
-    employee_id: null,
+    user_count: null, // Number of users to purchase (required)
+    employee_partner_code: null,
     payment_method: 'bank_transfer',
     payment_reference: '',
     payment_proof_url: '',
@@ -23,9 +23,21 @@ const PurchaseSubscriptionPage = ({ selectedPlan, billingCycle, onSuccess, onCan
   useEffect(() => {
     if (selectedPlan) {
       setFormData(prev => ({ ...prev, internal_slab_id: selectedPlan.id }));
+      // Auto-set user_count if min equals max
+      if (selectedPlan.min_users === selectedPlan.max_users && selectedPlan.min_users) {
+        setFormData(prev => ({ ...prev, user_count: selectedPlan.min_users }));
+      }
     }
     fetchPlans();
   }, [selectedPlan]);
+
+  // Auto-set user_count when plan data is loaded and min equals max
+  useEffect(() => {
+    const plan = plans.find(p => p.id === formData.internal_slab_id);
+    if (plan && plan.min_users === plan.max_users && plan.min_users && !formData.user_count) {
+      setFormData(prev => ({ ...prev, user_count: plan.min_users }));
+    }
+  }, [plans, formData.internal_slab_id]);
 
   const fetchPlans = async () => {
     try {
@@ -63,7 +75,31 @@ const PurchaseSubscriptionPage = ({ selectedPlan, billingCycle, onSuccess, onCan
     setLoading(true);
 
     try {
-      const result = await purchaseSubscription(formData);
+      // Calculate total amount and external free count
+      const selectedPlanData = plans.find(p => p.id === formData.internal_slab_id) || selectedPlan;
+      const pricePerUser = formData.billing_cycle === 'yearly' 
+        ? (selectedPlanData?.yearly_price || 0)
+        : (selectedPlanData?.monthly_price || 0);
+      const userCount = formData.user_count || selectedPlanData?.min_users || 1;
+      const totalAmount = userCount * pricePerUser;
+      const externalFreeCount = userCount * (selectedPlanData?.free_external_users_per_internal_user || 10);
+
+      // Prepare payload according to API structure
+      const purchasePayload = {
+        internal_slab_id: formData.internal_slab_id,
+        billing_cycle: formData.billing_cycle,
+        user_count: userCount,
+        // Optional fields
+        external_free_count: externalFreeCount || null,
+        total_amount: totalAmount || null,
+        employee_partner_code: formData.employee_partner_code?.trim() || null,
+        payment_method: formData.payment_method,
+        payment_reference: formData.payment_reference,
+        payment_proof_url: formData.payment_proof_url || null,
+        payment_date: formData.payment_date
+      };
+
+      const result = await purchaseSubscription(purchasePayload);
       if (result) {
         setSuccess(true);
         setTimeout(() => {
@@ -138,6 +174,42 @@ const PurchaseSubscriptionPage = ({ selectedPlan, billingCycle, onSuccess, onCan
           )}
         </div>
 
+        {/* User Selection Section - Required for purchase */}
+        {selectedPlanData && (
+          <div className="form-section">
+            <h2>Select Number of Users</h2>
+            <div className="form-group">
+              <label htmlFor="user_count">
+                Number of Internal Users * 
+                <span className="field-hint">
+                  {selectedPlanData.min_users === selectedPlanData.max_users
+                    ? `(${selectedPlanData.min_users} users)`
+                    : `(Select between ${selectedPlanData.min_users} and ${selectedPlanData.max_users} users)`}
+                </span>
+              </label>
+              <input
+                type="number"
+                id="user_count"
+                name="user_count"
+                min={selectedPlanData.min_users}
+                max={selectedPlanData.max_users}
+                value={formData.user_count || ''}
+                onChange={handleInputChange}
+                required
+                placeholder={`Enter number of users${selectedPlanData.min_users !== selectedPlanData.max_users ? ` (${selectedPlanData.min_users}-${selectedPlanData.max_users})` : ''}`}
+              />
+              {formData.user_count && selectedPlanData.free_external_users_per_internal_user && (
+                <div className="user-count-info">
+                  <p>
+                    You will get {formData.user_count * (selectedPlanData.free_external_users_per_internal_user || 10)} external users 
+                    ({formData.user_count} × {selectedPlanData.free_external_users_per_internal_user || 10})
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         <div className="form-section">
           <h2>Payment Details</h2>
           
@@ -203,26 +275,14 @@ const PurchaseSubscriptionPage = ({ selectedPlan, billingCycle, onSuccess, onCan
           <h2>Optional Information</h2>
           
           <div className="form-group">
-            <label htmlFor="partner_id">Partner Referral Code (Optional)</label>
+            <label htmlFor="employee_partner_code">Employee/Partner Code (Optional)</label>
             <input
               type="text"
-              id="partner_id"
-              name="partner_id"
-              value={formData.partner_id || ''}
+              id="employee_partner_code"
+              name="employee_partner_code"
+              value={formData.employee_partner_code || ''}
               onChange={handleInputChange}
-              placeholder="Enter partner referral code"
-            />
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="employee_id">Employee ID (Optional)</label>
-            <input
-              type="text"
-              id="employee_id"
-              name="employee_id"
-              value={formData.employee_id || ''}
-              onChange={handleInputChange}
-              placeholder="Enter employee ID"
+              placeholder="Enter employee or partner code"
             />
           </div>
         </div>

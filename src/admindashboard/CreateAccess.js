@@ -876,6 +876,12 @@ function CreateAccess() {
       
       console.log('API Response:', data);
       
+      // Check for error field in response (e.g., "Internal user limit exceeded")
+      if (data && data.error) {
+        setFormError(data.error);
+        return;
+      }
+      
       if (data && (data.status === 'success' || data.status === 'no_changes')) {
         // Check if there are any errors in the results
         if (data.results && data.results.errors && data.results.errors.length > 0) {
@@ -906,12 +912,35 @@ function CreateAccess() {
           }, 3000);
         }
       } else if (data && data.status === 'error') {
-        throw new Error(data.message || 'Failed to create access');
+        setFormError(data.message || 'Failed to create access');
+      } else if (!data) {
+        setFormError('No response from server');
       } else {
-        throw new Error('Invalid response from server');
+        setFormError('Invalid response from server');
       }
     } catch (err) {
-      setFormError(err.message);
+      console.error('Error creating access:', err);
+      // Extract error message from various error formats
+      let errorMessage = err.message || 'An error occurred while creating access';
+      
+      // If error message contains JSON, try to parse it
+      if (err.message && err.message.includes('{')) {
+        try {
+          const jsonMatch = err.message.match(/\{.*\}/);
+          if (jsonMatch) {
+            const errorObj = JSON.parse(jsonMatch[0]);
+            if (errorObj.error) {
+              errorMessage = errorObj.error;
+            } else if (errorObj.message) {
+              errorMessage = errorObj.message;
+            }
+          }
+        } catch (parseErr) {
+          // If parsing fails, use the original error message
+        }
+      }
+      
+      setFormError(errorMessage);
     } finally {
       setFormLoading(false);
     }

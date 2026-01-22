@@ -1,7 +1,8 @@
 .subscription-plans-page {
-  max-width: 1200px;
+  max-width: 1400px;
   margin: 0 auto;
   padding: 40px 20px;
+  width: 100%;
 }
 
 .plans-page-header {
@@ -62,9 +63,24 @@
 
 .plans-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-  gap: 24px;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 32px;
   margin-bottom: 40px;
+  width: 100%;
+}
+
+/* Responsive: 2 cards per row on tablets */
+@media (max-width: 1024px) {
+  .plans-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* Responsive: 1 card per row on mobile */
+@media (max-width: 768px) {
+  .plans-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .plans-page-actions {
@@ -179,10 +195,12 @@
 /* Plans Section */
 .plans-section {
   margin-top: 40px;
+  width: 100%;
 }
 
 .plans-subsection {
   margin-bottom: 60px;
+  width: 100%;
 }
 
 .plans-subsection h2 {
@@ -437,6 +455,18 @@
   margin-top: 24px;
   transition: all 0.3s ease;
   box-shadow: 0 4px 12px rgba(0, 123, 255, 0.3);
+}
+
+.subscribe-button:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.subscribe-button:disabled:hover {
+  background: #ccc;
+  transform: none;
+  box-shadow: none;
 }
 
 .subscribe-button:hover {
