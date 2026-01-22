@@ -1,21 +1,26 @@
 <IfModule mod_rewrite.c>
   RewriteEngine On
-  RewriteBase /
+  RewriteBase /Development/
   
   # Proxy API requests to backend (requires mod_proxy and mod_proxy_http)
   <IfModule mod_proxy.c>
     <IfModule mod_proxy_http.c>
       # Proxy API requests to backend
       # The [P] flag passes the request to the proxy
-      RewriteCond %{REQUEST_URI} ^/api/
+      RewriteCond %{REQUEST_URI} ^/Development/api/
       RewriteRule ^api/(.*)$ https://itcatalystindia.com/Development/CustomerPortal_API/api/$1 [P,L]
     </IfModule>
   </IfModule>
   
   # React Router handling - serve index.html for all non-file requests
+  # Don't rewrite if the request is for index.html itself
   RewriteRule ^index\.html$ - [L]
+  
+  # Don't rewrite if the file or directory exists (check relative to current directory)
   RewriteCond %{REQUEST_FILENAME} !-f
   RewriteCond %{REQUEST_FILENAME} !-d
-  RewriteRule . /index.html [L]
+  
+  # Rewrite all other requests to index.html (relative to RewriteBase)
+  RewriteRule . /Development/index.html [L]
 </IfModule>
 
