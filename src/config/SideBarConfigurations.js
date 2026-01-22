@@ -294,6 +294,10 @@ export const hasModuleAccess = (moduleKey, userModules) => {
 
   // Check if submodule should be visible based on required modules
   export const hasRequiredModuleAccess = (subModule, userModules) => {
+    // If submodule is alwaysVisible, always show it
+    if (subModule.alwaysVisible === true) {
+      return true;
+    }
     // If submodule has requiredModules, check if user has access to any of them
     if (subModule.requiredModules && Array.isArray(subModule.requiredModules)) {
       return subModule.requiredModules.some(moduleKey => 
