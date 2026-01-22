@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { hybridCache } from '../utils/hybridCache';
 import { getNestedFieldValue, extractAllFieldsFromCache, getNestedFieldValues, HIERARCHY_MAP, getHierarchyLevel } from './salesdashboard/utils/fieldExtractor';
 import { loadUdfConfig, getAvailableUdfFields } from '../utils/udfConfigLoader';
@@ -805,6 +805,84 @@ const CustomReports = () => {
     return null;
   };
 
+  // Helper function to get financial year start month (April = 3 in 0-indexed)
+  const getFinancialYearStart = () => 3; // April (can be made configurable)
+
+  // Date grouping helper functions
+  const groupDateByDay = (date) => {
+    if (!date) return '(blank)';
+    const d = new Date(date);
+    if (isNaN(d.getTime())) return '(blank)';
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+
+  const groupDateByWeek = (date) => {
+    if (!date) return '(blank)';
+    const d = new Date(date);
+    if (isNaN(d.getTime())) return '(blank)';
+    // Calculate week number (ISO week calculation)
+    const yearStart = new Date(d.getFullYear(), 0, 1);
+    const daysSinceYearStart = Math.floor((d - yearStart) / (24 * 60 * 60 * 1000));
+    const weekNumber = Math.ceil((daysSinceYearStart + yearStart.getDay() + 1) / 7);
+    return `Week ${weekNumber} - ${d.getFullYear()}`;
+  };
+
+  const groupDateByMonth = (date) => {
+    if (!date) return '(blank)';
+    const d = new Date(date);
+    if (isNaN(d.getTime())) return '(blank)';
+    // Month abbreviations
+    const monthAbbr = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const monthName = monthAbbr[d.getMonth()];
+    const year = String(d.getFullYear()).slice(-2); // Last 2 digits of year
+    return `${monthName}-${year}`;
+  };
+
+  const groupDateByQuarter = (date) => {
+    if (!date) return '(blank)';
+    const d = new Date(date);
+    if (isNaN(d.getTime())) return '(blank)';
+    const quarter = Math.floor(d.getMonth() / 3) + 1;
+    return `${d.getFullYear()}-Q${quarter}`;
+  };
+
+  const groupDateByYear = (date) => {
+    if (!date) return '(blank)';
+    const d = new Date(date);
+    if (isNaN(d.getTime())) return '(blank)';
+    return String(d.getFullYear());
+  };
+
+  const groupDateByFinancialYear = (date) => {
+    if (!date) return '(blank)';
+    const d = new Date(date);
+    if (isNaN(d.getTime())) return '(blank)';
+    const finYearStart = getFinancialYearStart();
+    const year = d.getMonth() >= finYearStart ? d.getFullYear() : d.getFullYear() - 1;
+    return `FY-${year}`;
+  };
+
+  // Main date grouping function
+  const groupDate = (date, grouping) => {
+    if (!grouping || grouping === 'day') {
+      return groupDateByDay(date);
+    }
+    switch(grouping) {
+      case 'week':
+        return groupDateByWeek(date);
+      case 'month':
+        return groupDateByMonth(date);
+      case 'quarter':
+        return groupDateByQuarter(date);
+      case 'year':
+        return groupDateByYear(date);
+      case 'finyear':
+        return groupDateByFinancialYear(date);
+      default:
+        return groupDateByDay(date);
+    }
+  };
+
   // Get available fields for pivot table (only fields from the current report table)
   const getAvailablePivotFields = useMemo(() => {
     if (!reportData || !reportData.columns || reportData.columns.length === 0) return [];
@@ -887,14 +965,36 @@ const CustomReports = () => {
       // Create row key from row fields
       const rowParts = config.rows.map(r => {
         const val = getFieldValue(item, r.field);
-        return val != null ? String(val) : '(blank)';
+        if (val == null) return '(blank)';
+        
+        // Check if this is a date field with grouping
+        const fieldType = getFieldTypeFn ? getFieldTypeFn(r.field) : 'text';
+        if (fieldType === 'date' && r.dateGrouping && r.dateGrouping !== 'day') {
+          const dateObj = parseDateFn ? parseDateFn(val) : (val instanceof Date ? val : new Date(val));
+          if (dateObj && !isNaN(dateObj.getTime())) {
+            // Apply date grouping
+            return groupDate(dateObj, r.dateGrouping);
+          }
+        }
+        return String(val);
       });
       const rowKey = buildKey(rowParts, config.rows.length === 0);
       
       // Create column key from column fields
       const colParts = config.columns.map(c => {
         const val = getFieldValue(item, c.field);
-        return val != null ? String(val) : '(blank)';
+        if (val == null) return '(blank)';
+        
+        // Check if this is a date field with grouping
+        const fieldType = getFieldTypeFn ? getFieldTypeFn(c.field) : 'text';
+        if (fieldType === 'date' && c.dateGrouping && c.dateGrouping !== 'day') {
+          const dateObj = parseDateFn ? parseDateFn(val) : (val instanceof Date ? val : new Date(val));
+          if (dateObj && !isNaN(dateObj.getTime())) {
+            // Apply date grouping
+            return groupDate(dateObj, c.dateGrouping);
+          }
+        }
+        return String(val);
       });
       const colKey = buildKey(colParts, config.columns.length === 0);
       
@@ -1277,13 +1377,15 @@ const CustomReports = () => {
 
   // Open report modal
   const handleOpenReport = (report, pivotOverride = null) => {
-    const effectivePivotConfig = pivotOverride?.config || report.pivotConfig;
-    const effectiveIsPivotMode = pivotOverride ? true : (report.isPivotMode || false);
-    const effectiveShowFieldsPanel = pivotOverride ? true : (report.showPivotFieldsPanel || false);
+    // If pivotOverride is provided (clicking on a pivot badge), use that pivot config
+    // Otherwise, always open in table view (not pivot mode) when clicking the report card
+    const effectivePivotConfig = pivotOverride?.config || null;
+    const effectiveIsPivotMode = pivotOverride ? true : false; // Only true if clicking a pivot badge
+    const effectiveShowFieldsPanel = pivotOverride ? true : false; // Only show panel if opening a pivot
 
     setSelectedReport({
       ...report,
-      pivotConfig: effectivePivotConfig || report.pivotConfig || null,
+      pivotConfig: effectivePivotConfig || null,
       isPivotMode: effectiveIsPivotMode,
       activePivotId: pivotOverride?.id || null
     });
@@ -1317,13 +1419,13 @@ const CustomReports = () => {
       }
     }
     
-    // Restore pivot table state if saved
-    if (effectivePivotConfig) {
+    // Restore pivot table state only if opening a specific pivot view
+    if (effectivePivotConfig && effectiveIsPivotMode) {
       setPivotConfig(effectivePivotConfig);
       setIsPivotMode(effectiveIsPivotMode);
       setShowPivotFieldsPanel(effectiveShowFieldsPanel);
     } else {
-      // Reset to defaults if no saved state
+      // Reset to defaults - always show table view when clicking report card
       setPivotConfig({ filters: [], rows: [], columns: [], values: [] });
       setIsPivotMode(false);
       setShowPivotFieldsPanel(false);
@@ -1513,7 +1615,6 @@ const CustomReports = () => {
     setReportPage(1);
     setReportSearch('');
     setColumnFilters({});
-    setHideDuplicates(true);
   };
 
   // Filtered reports
@@ -2472,6 +2573,45 @@ const CustomReports = () => {
                     Save Pivot View
                   </button>
                 )}
+                {/* Pivot Table Fields button in header when opening from saved pivot */}
+                {isPivotMode && selectedReport?.activePivotId && (
+                  <button
+                    onClick={() => {
+                      setShowPivotFieldsPanel(!showPivotFieldsPanel);
+                    }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      cursor: 'pointer',
+                      padding: '8px 14px',
+                      borderRadius: '8px',
+                      background: showPivotFieldsPanel ? '#eff6ff' : 'white',
+                      border: `2px solid ${showPivotFieldsPanel ? '#3b82f6' : '#e2e8f0'}`,
+                      transition: 'all 0.2s ease',
+                      fontSize: '13px',
+                      fontWeight: '500',
+                      color: showPivotFieldsPanel ? '#3b82f6' : '#475569',
+                      whiteSpace: 'nowrap'
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!showPivotFieldsPanel) {
+                        e.currentTarget.style.background = '#f8fafc';
+                        e.currentTarget.style.borderColor = '#3b82f6';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!showPivotFieldsPanel) {
+                        e.currentTarget.style.background = 'white';
+                        e.currentTarget.style.borderColor = '#e2e8f0';
+                      }
+                    }}
+                    title="Toggle Pivot Table Fields"
+                  >
+                    <span className="material-icons" style={{ fontSize: '18px' }}>view_module</span>
+                    Pivot Table Fields
+                  </button>
+                )}
                 <button
                   onClick={() => {
                     if (isPivotMode && pivotTableData) {
@@ -2513,30 +2653,66 @@ const CustomReports = () => {
                       // Add headers
                       const headerRow = [];
                       
+                      // Helper to get display label for row field
+                      const getRowFieldDisplayLabel = (rowField) => {
+                        if (rowField.customLabel) {
+                          return rowField.customLabel;
+                        }
+                        return rowField.label;
+                      };
+                      
                       // Row field headers
                       pivotConfig.rows.forEach(rowField => {
-                        headerRow.push(rowField.label);
+                        headerRow.push(getRowFieldDisplayLabel(rowField));
                       });
+                      
+                      // Helper to get display label for value field
+                      const getValueFieldDisplayLabel = (valueField) => {
+                        if (valueField.customLabel) {
+                          return valueField.customLabel;
+                        }
+                        return valueField.aggregation ? `${valueField.aggregation} of ${valueField.label}` : valueField.label;
+                      };
+                      
+                      // Helper to get display label for column field
+                      const getColumnFieldDisplayLabel = (columnField) => {
+                        if (columnField.customLabel) {
+                          return columnField.customLabel;
+                        }
+                        return columnField.label;
+                      };
+                      
+                      // Helper to get display label for column item
+                      const getColumnItemDisplayLabel = (colKey) => {
+                        const columnItemLabels = pivotConfig.columnItemLabels || {};
+                        if (columnItemLabels[colKey]) {
+                          return columnItemLabels[colKey];
+                        }
+                        const colValues = splitKey(colKey);
+                        return colValues.join(' / ');
+                      };
                       
                       // Column headers
                       if (pivotConfig.columns.length > 0) {
                         pivotTableData.colKeys.forEach(colKey => {
-                          const colValues = splitKey(colKey);
+                          const itemLabel = getColumnItemDisplayLabel(colKey);
                           pivotConfig.values.forEach(valueField => {
-                            headerRow.push(`${colValues.join(' / ')} - ${valueField.aggregation ? valueField.aggregation + ' of ' : ''}${valueField.label}`);
+                            const displayLabel = getValueFieldDisplayLabel(valueField);
+                            headerRow.push(`${itemLabel} - ${displayLabel}`);
                           });
                         });
                       } else {
                         // No columns, just value headers
                         pivotConfig.values.forEach(valueField => {
-                          headerRow.push(valueField.aggregation ? `${valueField.aggregation} of ${valueField.label}` : valueField.label);
+                          headerRow.push(getValueFieldDisplayLabel(valueField));
                         });
                       }
                       
                       // Total column header
                       if (pivotConfig.values.length > 1 || Array.from(pivotTableData.colKeys).length > 1) {
                         pivotConfig.values.forEach(valueField => {
-                          headerRow.push(`Total - ${valueField.aggregation ? valueField.aggregation + ' of ' : ''}${valueField.label}`);
+                          const displayLabel = getValueFieldDisplayLabel(valueField);
+                          headerRow.push(`Total - ${displayLabel}`);
                         });
                       }
                       
@@ -2769,7 +2945,8 @@ const CustomReports = () => {
                 />
               )}
 
-              {/* Search and Filters */}
+              {/* Search and Filters - Hide when opening from saved pivot */}
+              {!selectedReport?.activePivotId && (
               <div style={{ 
                 marginBottom: '20px', 
                 display: 'flex', 
@@ -2784,7 +2961,8 @@ const CustomReports = () => {
                 paddingBottom: '20px',
                 borderBottom: '2px solid #f1f5f9'
               }}>
-                <div style={{ 
+                {!isPivotMode && (
+                <div style={{
                   position: 'relative', 
                   flex: 1, 
                   minWidth: '280px',
@@ -2864,6 +3042,9 @@ const CustomReports = () => {
                     </button>
                   )}
                 </div>
+                )}
+                {/* Show Pivot Table Fields button here only when NOT opening from saved pivot */}
+                {pivotConfig && !selectedReport?.activePivotId && (
                 <div style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -2901,55 +3082,10 @@ const CustomReports = () => {
                     <span className="material-icons" style={{ fontSize: '18px' }}>view_module</span>
                     <span>Pivot Table Fields</span>
                   </button>
-                <label style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  cursor: 'pointer',
-                  padding: '10px 16px',
-                  borderRadius: '10px',
-                  background: hideDuplicates ? '#eff6ff' : '#f8fafc',
-                  border: `2px solid ${hideDuplicates ? '#3b82f6' : '#e2e8f0'}`,
-                  transition: 'all 0.2s ease',
-                  userSelect: 'none',
-                  fontSize: '14px',
-                  fontWeight: '500',
-                    color: hideDuplicates ? '#3b82f6' : '#475569'
-                }}
-                onMouseEnter={(e) => {
-                  if (!hideDuplicates) {
-                    e.currentTarget.style.background = '#f1f5f9';
-                    e.currentTarget.style.borderColor = '#cbd5e1';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (!hideDuplicates) {
-                    e.currentTarget.style.background = '#f8fafc';
-                    e.currentTarget.style.borderColor = '#e2e8f0';
-                  }
-                }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={hideDuplicates}
-                    onChange={(e) => {
-                      setHideDuplicates(e.target.checked);
-                      setReportPage(1);
-                    }}
-                    style={{
-                      width: '18px',
-                      height: '18px',
-                      cursor: 'pointer',
-                      accentColor: '#3b82f6'
-                    }}
-                  />
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <span className="material-icons" style={{ fontSize: '18px' }}>filter_alt_off</span>
-                    Hide Duplicates
-                  </span>
-                </label>
                 </div>
+                )}
               </div>
+              )}
 
               {/* Pivot Fields Panel */}
               {showPivotFieldsPanel && (
@@ -2967,7 +3103,8 @@ const CustomReports = () => {
               )}
 
               {/* Toggle between Normal and Pivot Mode */}
-              {pivotConfig.values.length > 0 && (
+              {/* Hide View Mode selector when opening a specific pivot view (activePivotId is set) */}
+              {pivotConfig.values.length > 0 && !selectedReport?.activePivotId && (
                 <div style={{
                   marginBottom: '16px',
                   display: 'flex',
@@ -3117,6 +3254,7 @@ const CustomReports = () => {
                 <PivotTableRenderer
                   pivotData={pivotTableData}
                   pivotConfig={pivotConfig}
+                  setPivotConfig={setPivotConfig}
                   getFieldLabel={getFieldLabel}
                 />
               ) : (
@@ -3272,7 +3410,8 @@ const CustomReports = () => {
               )}
 
               {/* Pagination */}
-              {totalRows > 0 && (
+              {/* Hide pagination when viewing pivot table */}
+              {totalRows > 0 && !isPivotMode && (
                 <div style={{
                   display: 'flex',
                   justifyContent: 'space-between',
@@ -6248,10 +6387,381 @@ const CustomReportModal = ({ salesData, onClose, initialReport = null }) => {
 };
 
 // Pivot Table Renderer Component
-const PivotTableRenderer = ({ pivotData, pivotConfig, getFieldLabel }) => {
+const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLabel }) => {
   // Pagination state for columns
   const [currentColumnPage, setCurrentColumnPage] = useState(0);
   const COLUMNS_PER_PAGE = 20; // Number of columns to show per page
+  
+  // State for editing column headers
+  const [editingHeader, setEditingHeader] = useState(null); // { type: 'value'|'columnField'|'columnItem'|'rowField', index: 0, colKey?: string }
+  const [editValue, setEditValue] = useState('');
+
+  // Initialize column item labels map if not exists
+  const columnItemLabels = pivotConfig.columnItemLabels || {};
+  
+  // Column width state and management
+  const [columnWidths, setColumnWidths] = useState(() => {
+    return pivotConfig.columnWidths || {};
+  });
+  
+  // Sync column widths when pivotConfig changes
+  useEffect(() => {
+    if (pivotConfig.columnWidths) {
+      setColumnWidths(pivotConfig.columnWidths);
+    }
+  }, [pivotConfig.columnWidths]);
+  
+  // State for resizing
+  const [resizingColumn, setResizingColumn] = useState(null); // { type: 'row'|'columnItem'|'value', colKey?, valueIndex?, rowIndex? }
+  const resizeStartXRef = useRef(0);
+  const resizeStartWidthRef = useRef(0);
+  const resizingColumnRef = useRef(null);
+  
+  // Get column width for a specific column
+  const getColumnWidth = (type, colKey, valueIndex, rowIndex) => {
+    let key;
+    if (type === 'row') {
+      key = `row-${rowIndex}`;
+    } else if (type === 'columnItem') {
+      key = `columnItem-${colKey}`;
+    } else {
+      // type === 'value'
+      key = `${colKey}-${valueIndex}`;
+    }
+    return columnWidths[key] || 120; // Default width 120px
+  };
+  
+  // Helper function to get display label for value field
+  const getValueFieldLabel = (valueField) => {
+    if (valueField.customLabel) {
+      return valueField.customLabel;
+    }
+    return valueField.aggregation ? `${valueField.aggregation} of ${valueField.label}` : valueField.label;
+  };
+
+  // Helper function to get display label for column field
+  const getColumnFieldLabel = (columnField) => {
+    if (columnField.customLabel) {
+      return columnField.customLabel;
+    }
+    return columnField.label;
+  };
+
+  // Helper function to get display label for column item
+  const getColumnItemLabel = (colKey) => {
+    if (columnItemLabels[colKey]) {
+      return columnItemLabels[colKey];
+    }
+    const colValues = splitKey(colKey);
+    return colValues.join(' / ');
+  };
+
+  // Helper function to get display label for row field
+  const getRowFieldLabel = (rowField) => {
+    if (rowField.customLabel) {
+      return rowField.customLabel;
+    }
+    return rowField.label;
+  };
+  
+  // Format value for display
+  const formatValue = (value, valueField) => {
+    if (value == null || value === undefined) return '-';
+    
+    // Apply scale factor if specified
+    let scaledValue = value;
+    if (typeof value === 'number' && valueField.scaleFactor && valueField.scaleFactor > 0) {
+      scaledValue = value / valueField.scaleFactor;
+    }
+    
+    if (valueField.aggregation === 'count' || valueField.aggregation === 'distinctCount') {
+      return Math.round(scaledValue).toLocaleString('en-IN');
+    }
+    if (typeof value === 'number') {
+      if (valueField.format === 'currency') {
+        return `₹${scaledValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      }
+      if (valueField.format === 'percentage') {
+        return `${scaledValue.toFixed(2)}%`;
+      }
+      // For scale factor, always show 2 decimal places
+      if (valueField.scaleFactor && valueField.scaleFactor > 0) {
+        return scaledValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      }
+      return scaledValue.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+    }
+    return value;
+  };
+
+  // Split key into array of values
+  const splitKey = (key) => {
+    if (key === 'Total') {
+      return ['Total'];
+    }
+    try {
+      const parsed = JSON.parse(key);
+      return Array.isArray(parsed) ? parsed : [String(parsed)];
+    } catch (e) {
+      return [String(key)];
+    }
+  };
+  
+  // Handle resize move
+  const handleResizeMove = useCallback((e) => {
+    if (!resizingColumnRef.current) return;
+    
+    const diff = e.clientX - resizeStartXRef.current;
+    const newWidth = Math.max(50, resizeStartWidthRef.current + diff); // Minimum width 50px
+    
+    const col = resizingColumnRef.current;
+    let key;
+    if (col.type === 'row') {
+      key = `row-${col.rowIndex}`;
+    } else if (col.type === 'columnItem') {
+      key = `columnItem-${col.colKey}`;
+    } else {
+      // type === 'value'
+      key = `${col.colKey}-${col.valueIndex}`;
+    }
+    
+    setColumnWidths(prev => ({
+      ...prev,
+      [key]: newWidth
+    }));
+  }, []);
+  
+  // Handle resize end
+  const handleResizeEnd = useCallback(() => {
+    if (!resizingColumnRef.current) return;
+    
+    // Save widths to pivotConfig
+    setColumnWidths(currentWidths => {
+      const updatedConfig = { ...pivotConfig };
+      updatedConfig.columnWidths = { ...currentWidths };
+      setPivotConfig(updatedConfig);
+      return currentWidths;
+    });
+    
+    // Cleanup
+    resizingColumnRef.current = null;
+    setResizingColumn(null);
+    document.removeEventListener('mousemove', handleResizeMove);
+    document.removeEventListener('mouseup', handleResizeEnd);
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+  }, [pivotConfig, setPivotConfig]);
+  
+  // Handle resize start
+  const handleResizeStart = (e, type, colKey = null, valueIndex = null, rowIndex = null) => {
+    e.preventDefault();
+    e.stopPropagation();
+    let key;
+    if (type === 'row') {
+      key = `row-${rowIndex}`;
+    } else if (type === 'columnItem') {
+      key = `columnItem-${colKey}`;
+    } else {
+      // type === 'value'
+      key = `${colKey}-${valueIndex}`;
+    }
+    const currentWidth = columnWidths[key] || 120;
+    
+    const resizeInfo = { type, colKey, valueIndex, rowIndex };
+    resizingColumnRef.current = resizeInfo;
+    setResizingColumn(resizeInfo);
+    resizeStartXRef.current = e.clientX;
+    resizeStartWidthRef.current = currentWidth;
+    
+    // Add global event listeners
+    document.addEventListener('mousemove', handleResizeMove);
+    document.addEventListener('mouseup', handleResizeEnd);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  };
+  
+  // Calculate optimal width for auto-fit (Excel-like double-click)
+  const calculateOptimalWidth = useCallback((type, colKey = null, valueIndex = null, rowIndex = null) => {
+    // Base padding: left padding + right padding + border
+    const basePadding = 16; // 6px left + 6px right + 4px border
+    const charWidth = 8; // Approximate character width for monospace/numeric fonts
+    const charWidthWide = 9; // For wider characters
+    
+    let maxWidth = 0;
+    let allTexts = [];
+    
+    if (type === 'row') {
+      // Get all row field values
+      const rowField = pivotConfig.rows[rowIndex];
+      if (rowField) {
+        // Add header label
+        const headerLabel = getRowFieldLabel(rowField);
+        allTexts.push(headerLabel);
+        
+        // Add all row values from pivotData
+        pivotData.rowKeys.forEach(rowKey => {
+          const rowValues = splitKey(rowKey);
+          if (rowValues[rowIndex] != null) {
+            allTexts.push(String(rowValues[rowIndex]));
+          }
+        });
+      }
+    } else if (type === 'columnItem') {
+      // Get all column item labels
+      const colValues = splitKey(colKey);
+      allTexts.push(colValues.join(' / '));
+      allTexts.push(getColumnItemLabel(colKey));
+    } else {
+      // type === 'value'
+      const valueField = pivotConfig.values[valueIndex];
+      if (valueField) {
+        // Add header label
+        const headerLabel = getValueFieldLabel(valueField);
+        allTexts.push(headerLabel);
+        
+        // Add all formatted values in this column
+        pivotData.rowKeys.forEach(rowKey => {
+          const val = pivotData.data[rowKey]?.[colKey]?.[valueField.field];
+          if (val != null) {
+            const formatted = formatValue(val, valueField);
+            allTexts.push(String(formatted));
+          }
+        });
+        
+        // Add totals
+        if (pivotData.colTotals[colKey]?.[valueField.field] != null) {
+          const formatted = formatValue(pivotData.colTotals[colKey][valueField.field], valueField);
+          allTexts.push(String(formatted));
+        }
+        if (pivotData.grandTotal[valueField.field] != null) {
+          const formatted = formatValue(pivotData.grandTotal[valueField.field], valueField);
+          allTexts.push(String(formatted));
+        }
+      }
+    }
+    
+    // Calculate max width needed
+    allTexts.forEach(text => {
+      if (text) {
+        // Estimate width: use wider char width for numbers/currency, regular for text
+        const isNumeric = /^[\d.,\-\s()]+$/.test(text.replace(/[₹$€£,]/g, ''));
+        const width = text.length * (isNumeric ? charWidth : charWidthWide);
+        maxWidth = Math.max(maxWidth, width);
+      }
+    });
+    
+    // Add padding and return (minimum 80px, maximum 500px for sanity)
+    return Math.min(Math.max(maxWidth + basePadding, 80), 500);
+  }, [pivotConfig, pivotData, getRowFieldLabel, getValueFieldLabel, getColumnItemLabel, formatValue, splitKey]);
+  
+  // Handle double-click auto-fit
+  const handleAutoFit = useCallback((e, type, colKey = null, valueIndex = null, rowIndex = null) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const optimalWidth = calculateOptimalWidth(type, colKey, valueIndex, rowIndex);
+    
+    let key;
+    if (type === 'row') {
+      key = `row-${rowIndex}`;
+    } else if (type === 'columnItem') {
+      key = `columnItem-${colKey}`;
+    } else {
+      // type === 'value'
+      key = `${colKey}-${valueIndex}`;
+    }
+    
+    setColumnWidths(prev => {
+      const newWidths = {
+        ...prev,
+        [key]: optimalWidth
+      };
+      
+      // Save to pivotConfig
+      const updatedConfig = { ...pivotConfig };
+      updatedConfig.columnWidths = { ...newWidths };
+      setPivotConfig(updatedConfig);
+      
+      return newWidths;
+    });
+  }, [calculateOptimalWidth, pivotConfig, setPivotConfig]);
+  
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      document.removeEventListener('mousemove', handleResizeMove);
+      document.removeEventListener('mouseup', handleResizeEnd);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [handleResizeMove, handleResizeEnd]);
+
+  // Handle starting to edit a header
+  const handleStartEdit = (type, index, colKey = null) => {
+    setEditingHeader({ type, index, colKey });
+    
+    if (type === 'value') {
+      const valueField = pivotConfig.values[index];
+      setEditValue(valueField.customLabel || getValueFieldLabel(valueField));
+    } else if (type === 'columnField') {
+      const columnField = pivotConfig.columns[index];
+      setEditValue(columnField.customLabel || columnField.label);
+    } else if (type === 'columnItem' && colKey) {
+      setEditValue(getColumnItemLabel(colKey));
+    } else if (type === 'rowField') {
+      const rowField = pivotConfig.rows[index];
+      setEditValue(rowField.customLabel || rowField.label);
+    }
+  };
+
+  // Handle saving edited header
+  const handleSaveEdit = () => {
+    if (!editingHeader) return;
+    
+    const updatedConfig = { ...pivotConfig };
+    
+    if (editingHeader.type === 'value') {
+      const valueField = { ...updatedConfig.values[editingHeader.index] };
+      valueField.customLabel = editValue.trim() || undefined; // Remove if empty
+      updatedConfig.values[editingHeader.index] = valueField;
+    } else if (editingHeader.type === 'columnField') {
+      const columnField = { ...updatedConfig.columns[editingHeader.index] };
+      columnField.customLabel = editValue.trim() || undefined; // Remove if empty
+      updatedConfig.columns[editingHeader.index] = columnField;
+    } else if (editingHeader.type === 'columnItem' && editingHeader.colKey) {
+      // Update column item labels map
+      const updatedItemLabels = { ...columnItemLabels };
+      const trimmedValue = editValue.trim();
+      if (trimmedValue) {
+        updatedItemLabels[editingHeader.colKey] = trimmedValue;
+      } else {
+        delete updatedItemLabels[editingHeader.colKey];
+      }
+      updatedConfig.columnItemLabels = updatedItemLabels;
+    } else if (editingHeader.type === 'rowField') {
+      const rowField = { ...updatedConfig.rows[editingHeader.index] };
+      rowField.customLabel = editValue.trim() || undefined; // Remove if empty
+      updatedConfig.rows[editingHeader.index] = rowField;
+    }
+    
+    setPivotConfig(updatedConfig);
+    setEditingHeader(null);
+    setEditValue('');
+  };
+
+  // Handle canceling edit
+  const handleCancelEdit = () => {
+    setEditingHeader(null);
+    setEditValue('');
+  };
+
+  // Handle key press in edit input
+  const handleEditKeyPress = (e) => {
+    if (e.key === 'Enter') {
+      handleSaveEdit();
+    } else if (e.key === 'Escape') {
+      handleCancelEdit();
+    }
+  };
 
   // Calculate pagination (even if pivotData is null, to avoid hook conditional call)
   const totalColumns = pivotData?.colKeys?.length || 0;
@@ -6281,36 +6791,6 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, getFieldLabel }) => {
       </div>
     );
   }
-
-  const formatValue = (value, valueField) => {
-    if (value == null || value === undefined) return '-';
-    if (valueField.aggregation === 'count' || valueField.aggregation === 'distinctCount') {
-      return Math.round(value).toLocaleString('en-IN');
-    }
-    if (typeof value === 'number') {
-      if (valueField.format === 'currency') {
-        return `₹${value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-      }
-      if (valueField.format === 'percentage') {
-        return `${value.toFixed(2)}%`;
-      }
-      return value.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
-    }
-    return value;
-  };
-
-  const splitKey = (key) => {
-    if (key === 'Total') {
-      return ['Total'];
-    }
-    try {
-      const parsed = JSON.parse(key);
-      return Array.isArray(parsed) ? parsed : [String(parsed)];
-    } catch (e) {
-      // Fallback for any legacy/plain keys
-      return String(key).split('|');
-    }
-  };
 
   // Pagination Controls Component
   const PaginationControls = ({ position }) => (
@@ -6444,22 +6924,120 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, getFieldLabel }) => {
             <>
               <tr style={{ background: '#f3f4f6' }}>
                 {/* Row field headers - rowspan for 3 rows (column label, item names, value names) */}
-                {pivotConfig.rows.map((rowField, idx) => (
-                  <th
-                    key={`row-header-${idx}`}
-                    rowSpan={3}
-                    style={{
-                      padding: '6px 8px',
-                      border: '1px solid #d1d5db',
-                      background: '#f3f4f6',
-                      fontWeight: '600',
-                      textAlign: 'left',
-                      verticalAlign: 'top'
-                    }}
-                  >
-                    {rowField.label}
-                  </th>
-                ))}
+                {pivotConfig.rows.map((rowField, idx) => {
+                  const rowWidth = getColumnWidth('row', null, null, idx);
+                  return (
+                    <th
+                      key={`row-header-${idx}`}
+                      rowSpan={3}
+                      style={{
+                        padding: '6px 8px',
+                        border: '1px solid #d1d5db',
+                        background: '#f3f4f6',
+                        fontWeight: '600',
+                        textAlign: 'left',
+                        verticalAlign: 'top',
+                        position: 'relative',
+                        width: `${rowWidth}px`,
+                        minWidth: `${rowWidth}px`,
+                        maxWidth: `${rowWidth}px`
+                      }}
+                    >
+                    {editingHeader && editingHeader.type === 'rowField' && editingHeader.index === idx ? (
+                      <input
+                        type="text"
+                        value={editValue}
+                        onChange={(e) => setEditValue(e.target.value)}
+                        onBlur={handleSaveEdit}
+                        onKeyDown={handleEditKeyPress}
+                        autoFocus
+                        style={{
+                          width: '100%',
+                          padding: '4px 6px',
+                          border: '2px solid #3b82f6',
+                          borderRadius: '4px',
+                          fontSize: '13px',
+                          fontWeight: '600',
+                          textAlign: 'left',
+                          outline: 'none',
+                          background: 'white'
+                        }}
+                      />
+                    ) : (
+                      <span
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleStartEdit('rowField', idx);
+                        }}
+                        onMouseEnter={(e) => {
+                          e.stopPropagation();
+                          e.currentTarget.style.backgroundColor = '#dbeafe';
+                          e.currentTarget.style.border = '1px solid #93c5fd';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.stopPropagation();
+                          e.currentTarget.style.backgroundColor = 'transparent';
+                          e.currentTarget.style.border = '1px solid transparent';
+                        }}
+                        style={{
+                          cursor: 'pointer',
+                          display: 'inline-block',
+                          padding: '4px 8px',
+                          borderRadius: '4px',
+                          transition: 'all 0.2s ease',
+                          userSelect: 'none',
+                          maxWidth: 'calc(100% - 12px)',
+                          backgroundColor: 'transparent',
+                          border: '1px solid transparent',
+                          position: 'relative',
+                          zIndex: 10,
+                          pointerEvents: 'auto',
+                          marginRight: '8px'
+                        }}
+                        title="Click to edit column name"
+                      >
+                        {getRowFieldLabel(rowField)}
+                      </span>
+                    )}
+                      {/* Resize handle for row field */}
+                      <div
+                        data-resize-handle="true"
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          handleResizeStart(e, 'row', null, null, idx);
+                        }}
+                        onDoubleClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          handleAutoFit(e, 'row', null, null, idx);
+                        }}
+                        style={{
+                          position: 'absolute',
+                          right: '-2px',
+                          top: 0,
+                          bottom: 0,
+                          width: '8px',
+                          cursor: 'col-resize',
+                          backgroundColor: 'transparent',
+                          zIndex: 30,
+                          pointerEvents: 'auto',
+                          userSelect: 'none'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.backgroundColor = '#3b82f6';
+                          e.currentTarget.style.width = '8px';
+                        }}
+                        onMouseLeave={(e) => {
+                          if (!resizingColumn || resizingColumn.type !== 'row' || resizingColumn.rowIndex !== idx) {
+                            e.currentTarget.style.backgroundColor = 'transparent';
+                          }
+                        }}
+                        title="Drag to resize, double-click to auto-fit"
+                      />
+                    </th>
+                  );
+                })}
                 {/* Column field label header */}
                 <th
                   colSpan={pivotConfig.values.length * visibleColKeys.length}
@@ -6468,10 +7046,86 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, getFieldLabel }) => {
                     border: '1px solid #d1d5db',
                     background: '#f3f4f6',
                     fontWeight: '600',
-                    textAlign: 'center'
+                    textAlign: 'center',
+                    position: 'relative'
+                  }}
+                  onMouseEnter={(e) => {
+                    // Don't interfere with child hover events
+                    if (e.target === e.currentTarget) {
+                      e.stopPropagation();
+                    }
+                  }}
+                  onClick={(e) => {
+                    // Allow clicks to pass through to child elements
+                    if (e.target === e.currentTarget) {
+                      e.stopPropagation();
+                    }
                   }}
                 >
-                  {pivotConfig.columns.map(c => c.label).join(' / ')}
+                  {pivotConfig.columns.length > 0 && (
+                    <>
+                      {pivotConfig.columns.map((c, idx) => (
+                        <span key={idx}>
+                          {editingHeader && editingHeader.type === 'columnField' && editingHeader.index === idx ? (
+                            <input
+                              type="text"
+                              value={editValue}
+                              onChange={(e) => setEditValue(e.target.value)}
+                              onBlur={handleSaveEdit}
+                              onKeyDown={handleEditKeyPress}
+                              autoFocus
+                              style={{
+                                padding: '4px 6px',
+                                border: '2px solid #3b82f6',
+                                borderRadius: '4px',
+                                fontSize: '13px',
+                                fontWeight: '600',
+                                textAlign: 'center',
+                                outline: 'none',
+                                background: 'white',
+                                minWidth: '100px'
+                              }}
+                            />
+                          ) : (
+                            <span
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleStartEdit('columnField', idx);
+                              }}
+                              onMouseEnter={(e) => {
+                                e.stopPropagation();
+                                e.currentTarget.style.backgroundColor = '#dbeafe';
+                                e.currentTarget.style.border = '1px solid #93c5fd';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.stopPropagation();
+                                e.currentTarget.style.backgroundColor = 'transparent';
+                                e.currentTarget.style.border = '1px solid transparent';
+                              }}
+                              style={{
+                                cursor: 'pointer',
+                                display: 'inline-block',
+                                padding: '4px 8px',
+                                borderRadius: '4px',
+                                transition: 'all 0.2s ease',
+                                userSelect: 'none',
+                                margin: '0 4px',
+                                backgroundColor: 'transparent',
+                                border: '1px solid transparent',
+                                position: 'relative',
+                                zIndex: 10,
+                                pointerEvents: 'auto'
+                              }}
+                              title="Click to edit column name"
+                            >
+                              {getColumnFieldLabel(c)}
+                            </span>
+                          )}
+                          {idx < pivotConfig.columns.length - 1 && ' / '}
+                        </span>
+                      ))}
+                    </>
+                  )}
                   {totalColumns > COLUMNS_PER_PAGE && (
                     <span style={{ 
                       fontSize: '11px', 
@@ -6506,8 +7160,13 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, getFieldLabel }) => {
               <tr style={{ background: '#f3f4f6' }}>
                 {/* Second header row - Item names (merged across value fields) */}
                 {visibleColKeys.map(colKey => {
-                  const colValues = splitKey(colKey);
-                  const itemName = colValues.join(' / ');
+                  // Get width for column item
+                  const columnItemWidth = getColumnWidth('columnItem', colKey, null, null);
+                  // Calculate total width for this column group (sum of all value field widths)
+                  const totalWidth = pivotConfig.values.reduce((sum, _, vIdx) => {
+                    return sum + getColumnWidth('value', colKey, vIdx, null);
+                  }, 0);
+                  
                   return (
                     <th
                       key={`item-${colKey}`}
@@ -6517,10 +7176,111 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, getFieldLabel }) => {
                         border: '1px solid #d1d5db',
                         background: '#f3f4f6',
                         fontWeight: '600',
-                        textAlign: 'center'
+                        textAlign: 'center',
+                        position: 'relative',
+                        width: `${totalWidth}px`,
+                        minWidth: `${totalWidth}px`,
+                        maxWidth: `${totalWidth}px`
+                      }}
+                      onMouseEnter={(e) => {
+                        // Don't interfere with child hover events
+                        if (e.target === e.currentTarget) {
+                          e.stopPropagation();
+                        }
                       }}
                     >
-                      {itemName}
+                      {editingHeader && editingHeader.type === 'columnItem' && editingHeader.colKey === colKey ? (
+                        <input
+                          type="text"
+                          value={editValue}
+                          onChange={(e) => setEditValue(e.target.value)}
+                          onBlur={handleSaveEdit}
+                          onKeyDown={handleEditKeyPress}
+                          autoFocus
+                          style={{
+                            width: '100%',
+                            padding: '4px 6px',
+                            border: '2px solid #3b82f6',
+                            borderRadius: '4px',
+                            fontSize: '13px',
+                            fontWeight: '600',
+                            textAlign: 'center',
+                            outline: 'none',
+                            background: 'white'
+                          }}
+                        />
+                      ) : (
+                        <span
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleStartEdit('columnItem', 0, colKey);
+                          }}
+                          onMouseEnter={(e) => {
+                            e.stopPropagation();
+                            e.currentTarget.style.backgroundColor = '#dbeafe';
+                            e.currentTarget.style.border = '1px solid #93c5fd';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.stopPropagation();
+                            e.currentTarget.style.backgroundColor = 'transparent';
+                            e.currentTarget.style.border = '1px solid transparent';
+                          }}
+                          style={{
+                            cursor: 'pointer',
+                            display: 'inline-block',
+                            padding: '4px 8px',
+                            borderRadius: '4px',
+                            transition: 'all 0.2s ease',
+                            userSelect: 'none',
+                            maxWidth: 'calc(100% - 12px)',
+                            backgroundColor: 'transparent',
+                            border: '1px solid transparent',
+                            position: 'relative',
+                            zIndex: 10,
+                            pointerEvents: 'auto',
+                            marginRight: '8px'
+                          }}
+                          title="Click to edit column name"
+                        >
+                          {getColumnItemLabel(colKey)}
+                        </span>
+                      )}
+                        {/* Resize handle for column item */}
+                        <div
+                          data-resize-handle="true"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            handleResizeStart(e, 'columnItem', colKey, null, null);
+                          }}
+                          onDoubleClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            handleAutoFit(e, 'columnItem', colKey, null, null);
+                          }}
+                          style={{
+                            position: 'absolute',
+                            right: '-2px',
+                            top: 0,
+                            bottom: 0,
+                            width: '8px',
+                            cursor: 'col-resize',
+                            backgroundColor: 'transparent',
+                            zIndex: 30,
+                            pointerEvents: 'auto',
+                            userSelect: 'none'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.backgroundColor = '#3b82f6';
+                            e.currentTarget.style.width = '8px';
+                          }}
+                          onMouseLeave={(e) => {
+                            if (!resizingColumn || resizingColumn.type !== 'columnItem' || resizingColumn.colKey !== colKey) {
+                              e.currentTarget.style.backgroundColor = 'transparent';
+                            }
+                          }}
+                          title="Drag to resize, double-click to auto-fit"
+                        />
                     </th>
                   );
                 })}
@@ -6528,20 +7288,118 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, getFieldLabel }) => {
               <tr style={{ background: '#f3f4f6' }}>
                 {/* Third header row - Value field names (Amount, Quantity, etc.) */}
                 {visibleColKeys.map(colKey => {
-                  return pivotConfig.values.map((valueField, vIdx) => (
-                    <th
-                      key={`value-${colKey}-${vIdx}`}
-                      style={{
-                        padding: '6px 8px',
-                        border: '1px solid #d1d5db',
-                        background: '#f3f4f6',
-                        fontWeight: '600',
-                        textAlign: 'center'
-                      }}
-                    >
-                      {valueField.aggregation ? `${valueField.aggregation} of ${valueField.label}` : valueField.label}
-                    </th>
-                  ));
+                  return pivotConfig.values.map((valueField, vIdx) => {
+                    const columnWidth = getColumnWidth('value', colKey, vIdx, null);
+                    return (
+                      <th
+                        key={`value-${colKey}-${vIdx}`}
+                        style={{
+                          padding: '6px 8px',
+                          border: '1px solid #d1d5db',
+                          background: '#f3f4f6',
+                          fontWeight: '600',
+                          textAlign: 'center',
+                          position: 'relative',
+                          width: `${columnWidth}px`,
+                          minWidth: `${columnWidth}px`,
+                          maxWidth: `${columnWidth}px`
+                        }}
+                      >
+                      {editingHeader && editingHeader.type === 'value' && editingHeader.index === vIdx && !editingHeader.colKey ? (
+                        <input
+                          type="text"
+                          value={editValue}
+                          onChange={(e) => setEditValue(e.target.value)}
+                          onBlur={handleSaveEdit}
+                          onKeyDown={handleEditKeyPress}
+                          autoFocus
+                          style={{
+                            width: '100%',
+                            padding: '4px 6px',
+                            border: '2px solid #3b82f6',
+                            borderRadius: '4px',
+                            fontSize: '13px',
+                            fontWeight: '600',
+                            textAlign: 'center',
+                            outline: 'none',
+                            background: 'white'
+                          }}
+                        />
+                      ) : (
+                        <span
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleStartEdit('value', vIdx);
+                          }}
+                          onMouseEnter={(e) => {
+                            e.stopPropagation();
+                            e.currentTarget.style.backgroundColor = '#dbeafe';
+                            e.currentTarget.style.border = '1px solid #93c5fd';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.stopPropagation();
+                            e.currentTarget.style.backgroundColor = 'transparent';
+                            e.currentTarget.style.border = '1px solid transparent';
+                          }}
+                          style={{
+                            cursor: 'pointer',
+                            display: 'inline-block',
+                            padding: '4px 8px',
+                            borderRadius: '4px',
+                            transition: 'all 0.2s ease',
+                            userSelect: 'none',
+                            maxWidth: 'calc(100% - 12px)',
+                            backgroundColor: 'transparent',
+                            border: '1px solid transparent',
+                            position: 'relative',
+                            zIndex: 10,
+                            pointerEvents: 'auto',
+                            marginRight: '8px'
+                          }}
+                          title="Click to edit column name"
+                        >
+                          {getValueFieldLabel(valueField)}
+                        </span>
+                      )}
+                        {/* Resize handle */}
+                        <div
+                          data-resize-handle="true"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            handleResizeStart(e, 'value', colKey, vIdx, null);
+                          }}
+                          onDoubleClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            handleAutoFit(e, 'value', colKey, vIdx, null);
+                          }}
+                          style={{
+                            position: 'absolute',
+                            right: '-2px',
+                            top: 0,
+                            bottom: 0,
+                            width: '8px',
+                            cursor: 'col-resize',
+                            backgroundColor: 'transparent',
+                            zIndex: 30,
+                            pointerEvents: 'auto',
+                            userSelect: 'none'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.backgroundColor = '#3b82f6';
+                            e.currentTarget.style.width = '8px';
+                          }}
+                          onMouseLeave={(e) => {
+                            if (!resizingColumn || resizingColumn.type !== 'value' || resizingColumn.colKey !== colKey || resizingColumn.valueIndex !== vIdx) {
+                              e.currentTarget.style.backgroundColor = 'transparent';
+                            }
+                          }}
+                          title="Drag to resize, double-click to auto-fit"
+                        />
+                      </th>
+                    );
+                  });
                 })}
               </tr>
             </>
@@ -6549,34 +7407,225 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, getFieldLabel }) => {
           {/* No column fields - just value headers */}
           {pivotConfig.columns.length === 0 && (
             <tr style={{ background: '#f3f4f6' }}>
-              {pivotConfig.rows.map((rowField, idx) => (
-                <th
-                  key={`row-header-${idx}`}
-                  style={{
-                    padding: '6px 8px',
-                    border: '1px solid #d1d5db',
-                    background: '#f3f4f6',
-                    fontWeight: '600',
-                    textAlign: 'left'
-                  }}
-                >
-                  {rowField.label}
-                </th>
-              ))}
-              {pivotConfig.values.map((valueField, vIdx) => (
-                <th
-                  key={`value-header-${vIdx}`}
-                  style={{
-                    padding: '6px 8px',
-                    border: '1px solid #d1d5db',
-                    background: '#f3f4f6',
-                    fontWeight: '600',
-                    textAlign: 'center'
-                  }}
-                >
-                  {valueField.aggregation ? `${valueField.aggregation} of ${valueField.label}` : valueField.label}
-                </th>
-              ))}
+              {pivotConfig.rows.map((rowField, idx) => {
+                const rowWidth = getColumnWidth('row', null, null, idx);
+                return (
+                  <th
+                    key={`row-header-${idx}`}
+                    style={{
+                      padding: '6px 8px',
+                      border: '1px solid #d1d5db',
+                      background: '#f3f4f6',
+                      fontWeight: '600',
+                      textAlign: 'left',
+                      position: 'relative',
+                      width: `${rowWidth}px`,
+                      minWidth: `${rowWidth}px`,
+                      maxWidth: `${rowWidth}px`
+                    }}
+                  >
+                    {editingHeader && editingHeader.type === 'rowField' && editingHeader.index === idx ? (
+                    <input
+                      type="text"
+                      value={editValue}
+                      onChange={(e) => setEditValue(e.target.value)}
+                      onBlur={handleSaveEdit}
+                      onKeyDown={handleEditKeyPress}
+                      autoFocus
+                      style={{
+                        width: '100%',
+                        padding: '4px 6px',
+                        border: '2px solid #3b82f6',
+                        borderRadius: '4px',
+                        fontSize: '13px',
+                        fontWeight: '600',
+                        textAlign: 'left',
+                        outline: 'none',
+                        background: 'white'
+                      }}
+                    />
+                  ) : (
+                    <span
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleStartEdit('rowField', idx);
+                      }}
+                      onMouseEnter={(e) => {
+                        e.stopPropagation();
+                        e.currentTarget.style.backgroundColor = '#dbeafe';
+                        e.currentTarget.style.border = '1px solid #93c5fd';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.stopPropagation();
+                        e.currentTarget.style.backgroundColor = 'transparent';
+                        e.currentTarget.style.border = '1px solid transparent';
+                      }}
+                      style={{
+                        cursor: 'pointer',
+                        display: 'inline-block',
+                        padding: '4px 8px',
+                        borderRadius: '4px',
+                        transition: 'all 0.2s ease',
+                        userSelect: 'none',
+                        maxWidth: 'calc(100% - 12px)',
+                        backgroundColor: 'transparent',
+                        border: '1px solid transparent',
+                        position: 'relative',
+                        zIndex: 10,
+                        pointerEvents: 'auto',
+                        marginRight: '8px'
+                      }}
+                      title="Click to edit column name"
+                    >
+                      {getRowFieldLabel(rowField)}
+                    </span>
+                  )}
+                    {/* Resize handle for row field */}
+                    <div
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleResizeStart(e, 'row', null, null, idx);
+                      }}
+                      style={{
+                        position: 'absolute',
+                        right: '-2px',
+                        top: 0,
+                        bottom: 0,
+                        width: '8px',
+                        cursor: 'col-resize',
+                        backgroundColor: 'transparent',
+                        zIndex: 30,
+                        pointerEvents: 'auto'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = '#3b82f6';
+                        e.currentTarget.style.width = '8px';
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!resizingColumn || resizingColumn.type !== 'row' || resizingColumn.rowIndex !== idx) {
+                          e.currentTarget.style.backgroundColor = 'transparent';
+                        }
+                      }}
+                      title="Drag to resize column"
+                    />
+                  </th>
+                );
+              })}
+              {pivotConfig.values.map((valueField, vIdx) => {
+                // For no-column-fields case, use a default colKey or empty string
+                const defaultColKey = '';
+                const columnWidth = getColumnWidth('value', defaultColKey, vIdx, null);
+                return (
+                  <th
+                    key={`value-header-${vIdx}`}
+                    style={{
+                      padding: '6px 8px',
+                      border: '1px solid #d1d5db',
+                      background: '#f3f4f6',
+                      fontWeight: '600',
+                      textAlign: 'center',
+                      position: 'relative',
+                      width: `${columnWidth}px`,
+                      minWidth: `${columnWidth}px`,
+                      maxWidth: `${columnWidth}px`
+                    }}
+                  >
+                  {editingHeader && editingHeader.type === 'value' && editingHeader.index === vIdx ? (
+                    <input
+                      type="text"
+                      value={editValue}
+                      onChange={(e) => setEditValue(e.target.value)}
+                      onBlur={handleSaveEdit}
+                      onKeyDown={handleEditKeyPress}
+                      autoFocus
+                      style={{
+                        width: '100%',
+                        padding: '4px 6px',
+                        border: '2px solid #3b82f6',
+                        borderRadius: '4px',
+                        fontSize: '13px',
+                        fontWeight: '600',
+                        textAlign: 'center',
+                        outline: 'none',
+                        background: 'white'
+                      }}
+                    />
+                  ) : (
+                    <span
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleStartEdit('value', vIdx);
+                      }}
+                      onMouseEnter={(e) => {
+                        e.stopPropagation();
+                        e.currentTarget.style.backgroundColor = '#dbeafe';
+                        e.currentTarget.style.border = '1px solid #93c5fd';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.stopPropagation();
+                        e.currentTarget.style.backgroundColor = 'transparent';
+                        e.currentTarget.style.border = '1px solid transparent';
+                      }}
+                      style={{
+                        cursor: 'pointer',
+                        display: 'inline-block',
+                        padding: '4px 8px',
+                        borderRadius: '4px',
+                        transition: 'all 0.2s ease',
+                        userSelect: 'none',
+                        maxWidth: 'calc(100% - 12px)',
+                        backgroundColor: 'transparent',
+                        border: '1px solid transparent',
+                        position: 'relative',
+                        zIndex: 10,
+                        pointerEvents: 'auto',
+                        marginRight: '8px'
+                      }}
+                      title="Click to edit column name"
+                    >
+                      {getValueFieldLabel(valueField)}
+                    </span>
+                  )}
+                    {/* Resize handle */}
+                    <div
+                      data-resize-handle="true"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleResizeStart(e, 'value', defaultColKey, vIdx, null);
+                      }}
+                      onDoubleClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleAutoFit(e, 'value', defaultColKey, vIdx, null);
+                      }}
+                      style={{
+                        position: 'absolute',
+                        right: '-2px',
+                        top: 0,
+                        bottom: 0,
+                        width: '8px',
+                        cursor: 'col-resize',
+                        backgroundColor: 'transparent',
+                        zIndex: 30,
+                        pointerEvents: 'auto',
+                        userSelect: 'none'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = '#3b82f6';
+                        e.currentTarget.style.width = '8px';
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!resizingColumn || resizingColumn.type !== 'value' || resizingColumn.colKey !== defaultColKey || resizingColumn.valueIndex !== vIdx) {
+                          e.currentTarget.style.backgroundColor = 'transparent';
+                        }
+                      }}
+                      title="Drag to resize, double-click to auto-fit"
+                    />
+                  </th>
+                );
+              })}
               {/* Total column - only show if there are multiple value fields */}
               {pivotConfig.values.length > 1 && (
                 <th
@@ -6765,28 +7814,37 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, getFieldLabel }) => {
                               border: '1px solid #d1d5db',
                               fontWeight: '600',
                               background: '#fafafa',
-                              verticalAlign: 'top'
+                              verticalAlign: 'top',
+                              width: `${getColumnWidth('row', null, null, 0)}px`,
+                              minWidth: `${getColumnWidth('row', null, null, 0)}px`,
+                              maxWidth: `${getColumnWidth('row', null, null, 0)}px`
                             }}
                           >
                             {rowValues[0]}
                           </td>
                         )}
                         {/* Child row labels */}
-                        {rowValues.slice(1).map((val, idx) => (
-                          <td
-                            key={`row-label-${idx + 1}`}
-                            style={{
-                              padding: '6px 8px',
-                              border: '1px solid #d1d5db',
-                              fontWeight: '400',
-                              background: 'white',
-                              paddingLeft: `${20 + idx * 20}px`
-                            }}
-                          >
-                            <span style={{ marginRight: '4px', color: '#94a3b8' }}>└</span>
-                            {val}
-                          </td>
-                        ))}
+                        {rowValues.slice(1).map((val, idx) => {
+                          const rowWidth = getColumnWidth('row', null, null, idx + 1);
+                          return (
+                            <td
+                              key={`row-label-${idx + 1}`}
+                              style={{
+                                padding: '6px 8px',
+                                border: '1px solid #d1d5db',
+                                fontWeight: '400',
+                                background: 'white',
+                                paddingLeft: `${20 + idx * 20}px`,
+                                width: `${rowWidth}px`,
+                                minWidth: `${rowWidth}px`,
+                                maxWidth: `${rowWidth}px`
+                              }}
+                            >
+                              <span style={{ marginRight: '4px', color: '#94a3b8' }}>└</span>
+                              {val}
+                            </td>
+                          );
+                        })}
                       </>
                     ) : (
                       /* Single row field - show each value in its own row (no rowspan) */
@@ -6795,7 +7853,10 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, getFieldLabel }) => {
                           padding: '6px 8px',
                           border: '1px solid #d1d5db',
                           fontWeight: '600',
-                          background: '#fafafa'
+                          background: '#fafafa',
+                          width: `${getColumnWidth('row', null, null, 0)}px`,
+                          minWidth: `${getColumnWidth('row', null, null, 0)}px`,
+                          maxWidth: `${getColumnWidth('row', null, null, 0)}px`
                         }}
                       >
                         {rowValues[0]}
@@ -6803,19 +7864,25 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, getFieldLabel }) => {
                     )}
                     {/* Data cells */}
                     {visibleColKeys.map(colKey => {
-                      return pivotConfig.values.map((valueField, vIdx) => (
-                        <td
-                          key={`cell-${rowKey}-${colKey}-${vIdx}`}
-                          style={{
-                            padding: '6px 8px',
-                            border: '1px solid #d1d5db',
-                            textAlign: 'right',
-                            fontFamily: 'monospace'
-                          }}
-                        >
-                          {formatValue(pivotData.data[rowKey]?.[colKey]?.[valueField.field], valueField)}
-                        </td>
-                      ));
+                      return pivotConfig.values.map((valueField, vIdx) => {
+                        const columnWidth = getColumnWidth('value', colKey, vIdx, null);
+                        return (
+                          <td
+                            key={`cell-${rowKey}-${colKey}-${vIdx}`}
+                            style={{
+                              padding: '6px 8px',
+                              border: '1px solid #d1d5db',
+                              textAlign: 'right',
+                              fontFamily: 'monospace',
+                              width: `${columnWidth}px`,
+                              minWidth: `${columnWidth}px`,
+                              maxWidth: `${columnWidth}px`
+                            }}
+                          >
+                            {formatValue(pivotData.data[rowKey]?.[colKey]?.[valueField.field], valueField)}
+                          </td>
+                        );
+                      });
                     })}
                     {/* Row totals - only show if there are multiple value fields or multiple columns */}
                     {(pivotConfig.values.length > 1 || Array.from(pivotData.colKeys).length > 1) && pivotConfig.values.map((valueField, vIdx) => (
@@ -6853,21 +7920,27 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, getFieldLabel }) => {
                 Grand Total
               </td>
               {visibleColKeys.map(colKey => {
-                return pivotConfig.values.map((valueField, vIdx) => (
-                  <td
-                    key={`col-total-${colKey}-${vIdx}`}
-                    style={{
-                      padding: '6px 8px',
-                      border: '1px solid #d1d5db',
-                      textAlign: 'right',
-                      fontWeight: '600',
-                      background: '#f3f4f6',
-                      fontFamily: 'monospace'
-                    }}
-                  >
-                    {formatValue(pivotData.colTotals[colKey][valueField.field], valueField)}
-                  </td>
-                ));
+                return pivotConfig.values.map((valueField, vIdx) => {
+                  const columnWidth = getColumnWidth('value', colKey, vIdx, null);
+                  return (
+                    <td
+                      key={`col-total-${colKey}-${vIdx}`}
+                      style={{
+                        padding: '6px 8px',
+                        border: '1px solid #d1d5db',
+                        textAlign: 'right',
+                        fontWeight: '600',
+                        background: '#f3f4f6',
+                        fontFamily: 'monospace',
+                        width: `${columnWidth}px`,
+                        minWidth: `${columnWidth}px`,
+                        maxWidth: `${columnWidth}px`
+                      }}
+                    >
+                      {formatValue(pivotData.colTotals[colKey][valueField.field], valueField)}
+                    </td>
+                  );
+                });
               })}
               {/* Grand Total column - only show if there are multiple value fields or multiple columns */}
               {(pivotConfig.values.length > 1 || Array.from(pivotData.colKeys).length > 1) && pivotConfig.values.map((valueField, vIdx) => (
@@ -6975,7 +8048,8 @@ const PivotFieldsPanel = (props) => {
           format: targetArea === 'values' && field.type === 'number' ? 'number' : undefined,
           showSubtotals: true,
           showGrandTotal: true,
-          values: targetArea === 'filters' ? [] : undefined  // Initialize empty filter values
+          values: targetArea === 'filters' ? [] : undefined,  // Initialize empty filter values
+          dateGrouping: (field.type === 'date' && (targetArea === 'rows' || targetArea === 'columns')) ? 'day' : undefined  // Default to day grouping for date fields
         };
         
         if (targetIndex !== undefined) {
@@ -7025,9 +8099,20 @@ const PivotFieldsPanel = (props) => {
   // Render field chip
   const renderFieldChip = (field, area, index, isDraggable = true) => {
     const isValue = area === 'values';
-    const displayLabel = isValue && field.aggregation 
-      ? `${field.aggregation.charAt(0).toUpperCase() + field.aggregation.slice(1)} of ${field.label}`
-      : field.label;
+    let displayLabel = field.label;
+    if (isValue && field.aggregation) {
+      displayLabel = `${field.aggregation.charAt(0).toUpperCase() + field.aggregation.slice(1)} of ${field.label}`;
+    } else if (field.type === 'date' && field.dateGrouping && field.dateGrouping !== 'day') {
+      // Show date grouping for date fields in rows/columns
+      const groupingLabels = {
+        'week': 'Week',
+        'month': 'Month',
+        'quarter': 'Quarter',
+        'year': 'Year',
+        'finyear': 'Fin Year'
+      };
+      displayLabel = `${field.label} (${groupingLabels[field.dateGrouping] || field.dateGrouping})`;
+    }
     
     return (
       <div
@@ -7346,6 +8431,8 @@ const FieldConfigurationModal = ({ fieldConfig, pivotConfig, setPivotConfig, onC
   const [showGrandTotal, setShowGrandTotal] = useState(fieldConfig?.field?.showGrandTotal !== false);
   const [filterValues, setFilterValues] = useState(fieldConfig?.field?.values || []);
   const [filterSearch, setFilterSearch] = useState('');
+  const [dateGrouping, setDateGrouping] = useState(fieldConfig?.field?.dateGrouping || 'day');
+  const [scaleFactor, setScaleFactor] = useState(fieldConfig?.field?.scaleFactor || '');
 
   // Get unique values for filter field
   const availableFilterValues = useMemo(() => {
@@ -7379,8 +8466,24 @@ const FieldConfigurationModal = ({ fieldConfig, pivotConfig, setPivotConfig, onC
       field.format = format;
       field.showSubtotals = showSubtotals;
       field.showGrandTotal = showGrandTotal;
+      // Save scale factor if provided (remove if empty)
+      if (scaleFactor && scaleFactor.trim() !== '') {
+        const factor = parseFloat(scaleFactor);
+        if (!isNaN(factor) && factor > 0) {
+          field.scaleFactor = factor;
+        } else {
+          delete field.scaleFactor;
+        }
+      } else {
+        delete field.scaleFactor;
+      }
     } else if (fieldConfig.area === 'filters') {
       field.values = filterValues;
+    }
+    
+    // Handle date grouping for date fields in rows or columns
+    if ((fieldConfig.area === 'rows' || fieldConfig.area === 'columns') && field.type === 'date') {
+      field.dateGrouping = dateGrouping;
     }
 
     updatedConfig[fieldConfig.area][fieldConfig.index] = field;
@@ -7515,9 +8618,84 @@ const FieldConfigurationModal = ({ fieldConfig, pivotConfig, setPivotConfig, onC
                 </select>
               </div>
 
-
-
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{
+                  display: 'block',
+                  fontSize: '13px',
+                  fontWeight: '500',
+                  color: '#475569',
+                  marginBottom: '8px'
+                }}>
+                  Scale Factor (optional)
+                </label>
+                <input
+                  type="number"
+                  value={scaleFactor}
+                  onChange={(e) => setScaleFactor(e.target.value)}
+                  placeholder="e.g., 100, 1000"
+                  min="0.0001"
+                  step="0.0001"
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                    outline: 'none'
+                  }}
+                />
+                <p style={{
+                  marginTop: '6px',
+                  fontSize: '12px',
+                  color: '#64748b',
+                  marginBottom: 0
+                }}>
+                  Divide all values by this number. Example: 12349 ÷ 1000 = 12.35
+                </p>
+              </div>
             </>
+          )}
+
+          {(fieldConfig.area === 'rows' || fieldConfig.area === 'columns') && fieldConfig.field?.type === 'date' && (
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{
+                display: 'block',
+                fontSize: '13px',
+                fontWeight: '500',
+                color: '#475569',
+                marginBottom: '8px'
+              }}>
+                Date Grouping
+              </label>
+              <select
+                value={dateGrouping}
+                onChange={(e) => setDateGrouping(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '8px',
+                  fontSize: '14px',
+                  outline: 'none'
+                }}
+              >
+                <option value="day">Day</option>
+                <option value="week">Week</option>
+                <option value="month">Month</option>
+                <option value="quarter">Quarter</option>
+                <option value="year">Year</option>
+                <option value="finyear">Financial Year</option>
+              </select>
+              <div style={{
+                fontSize: '12px',
+                color: '#64748b',
+                marginTop: '6px',
+                fontStyle: 'italic'
+              }}>
+                {dateGrouping === 'finyear' && 'Financial year starts in April'}
+                {dateGrouping === 'week' && 'Week number based on ISO standard'}
+              </div>
+            </div>
           )}
 
           {fieldConfig.area === 'filters' && (
