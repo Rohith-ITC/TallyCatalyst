@@ -20,6 +20,7 @@ const UpgradeDowngradePage = ({ mode = 'upgrade', onSuccess, onCancel }) => {
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState(null);
   const [showPaymentForm, setShowPaymentForm] = useState(false);
+  const [userCount, setUserCount] = useState(null); // For upgrade: total users (current + additional)
   const [paymentData, setPaymentData] = useState({
     payment_method: 'bank_transfer',
     payment_reference: '',
@@ -109,10 +110,15 @@ const UpgradeDowngradePage = ({ mode = 'upgrade', onSuccess, onCancel }) => {
     try {
       let result;
       if (mode === 'upgrade') {
-        result = await upgradeSubscription({
+        const upgradePayload = {
           new_slab_id: selectedPlanId,
           ...paymentData
-        });
+        };
+        // Add user_count if provided (total users: current + additional)
+        if (userCount !== null) {
+          upgradePayload.user_count = userCount;
+        }
+        result = await upgradeSubscription(upgradePayload);
       } else {
         result = await downgradeSubscription({
           new_slab_id: selectedPlanId
@@ -242,6 +248,37 @@ const UpgradeDowngradePage = ({ mode = 'upgrade', onSuccess, onCancel }) => {
 
       {selectedPlan && (
         <form onSubmit={handleSubmit} className="upgrade-form">
+          {/* User Count Selection for Upgrade - Optional */}
+          {mode === 'upgrade' && selectedPlan.min_users !== selectedPlan.max_users && (
+            <div className="form-section">
+              <h2>Select Total Number of Users</h2>
+              <div className="form-group">
+                <label htmlFor="user_count">
+                  Total Users (Current + Additional) 
+                  <span className="field-hint">
+                    (Optional - Select between {selectedPlan.min_users} and {selectedPlan.max_users} users. 
+                    If not provided, current user count will be used.)
+                  </span>
+                </label>
+                <input
+                  type="number"
+                  id="user_count"
+                  name="user_count"
+                  min={selectedPlan.min_users}
+                  max={selectedPlan.max_users}
+                  value={userCount || ''}
+                  onChange={(e) => setUserCount(parseInt(e.target.value) || null)}
+                  placeholder={`Enter total users (${selectedPlan.min_users}-${selectedPlan.max_users})`}
+                />
+                {currentSubscription?.purchased_user_count && (
+                  <small className="field-hint">
+                    Current users: {currentSubscription.purchased_user_count}
+                  </small>
+                )}
+              </div>
+            </div>
+          )}
+
           {mode === 'upgrade' && (
             <div className="payment-section">
               <h2>Payment Details</h2>

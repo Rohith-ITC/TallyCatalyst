@@ -149,7 +149,25 @@ export const apiPost = async (endpoint, data) => {
     
     // Check if response is ok after reading text (since we need to read it only once)
     if (!response.ok) {
-      throw new Error(`API request failed: ${response.status} ${response.statusText}. ${text.substring(0, 500)}`);
+      // Try to parse JSON error response
+      let errorMessage = `API request failed: ${response.status} ${response.statusText}`;
+      try {
+        if (text) {
+          const errorObj = JSON.parse(text);
+          // Prefer error field, then message field, then use the full object
+          if (errorObj.error) {
+            errorMessage = errorObj.error;
+          } else if (errorObj.message) {
+            errorMessage = errorObj.message;
+          } else {
+            errorMessage = `${errorMessage}. ${text.substring(0, 500)}`;
+          }
+        }
+      } catch (parseError) {
+        // If JSON parsing fails, include the text in the error message
+        errorMessage = `${errorMessage}. ${text ? text.substring(0, 500) : 'No response body'}`;
+      }
+      throw new Error(errorMessage);
     }
     
     if (!text) {

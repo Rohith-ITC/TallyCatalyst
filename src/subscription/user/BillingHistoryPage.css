@@ -94,6 +94,32 @@
   color: #007bff;
 }
 
+.rejection-reason-cell {
+  max-width: 200px;
+  word-wrap: break-word;
+}
+
+.rejection-reason {
+  color: #dc3545;
+  font-weight: 500;
+  font-size: 13px;
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.no-rejection {
+  color: #999;
+  font-style: italic;
+}
+
+.rejection-reason-text {
+  color: #dc3545;
+  font-weight: 500;
+}
+
 .total-amount {
   font-weight: 700;
   color: #333;

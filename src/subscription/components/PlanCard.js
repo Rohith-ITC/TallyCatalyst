@@ -92,14 +92,14 @@ const PlanCard = ({
 
       <div className="plan-card-actions">
         {isCurrent ? (
-          <button className="plan-card-button plan-card-button-current" disabled>
-            Current Plan
-          </button>
-        ) : (
-          <button className="plan-card-button plan-card-button-select">
+          <button className="plan-card-button plan-card-button-select" onClick={onSelect || undefined}>
             {isSelected ? 'Selected' : 'Select Plan'}
           </button>
-        )}
+        ) : onSelect ? (
+          <button className="plan-card-button plan-card-button-select" onClick={onSelect}>
+            {isSelected ? 'Selected' : 'Select Plan'}
+          </button>
+        ) : null}
       </div>
     </div>
   );

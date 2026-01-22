@@ -94,6 +94,20 @@
   margin-left: 8px;
 }
 
+.user-count-info {
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: #e7f3ff;
+  border-radius: 6px;
+  border-left: 3px solid #17a2b8;
+}
+
+.user-count-info p {
+  margin: 0;
+  font-size: 13px;
+  color: #004085;
+}
+
 .form-group input,
 .form-group select {
   width: 100%;
