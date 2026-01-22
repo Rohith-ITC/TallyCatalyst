@@ -134,16 +134,16 @@ export const MODULE_SEQUENCE = [
           icon          : 'account_balance_wallet',
           permissions   : {},
           requiredModules: ['vendor_expenses'] // Show if user has access to vendor_expenses
-        },
-        {
-          key           : 'custom_reports',
-          id            : 'custom_reports',
-          label         : 'Custom Reports',
-          icon          : 'summarize',
-          permissions   : {},
-          alwaysVisible : true // Always show Custom Reports in the dropdown
         }
       ],
+      permissions       : {}
+    },
+    {
+      key               : 'custom_reports',
+      id                : 'custom_reports',
+      label             : 'Custom Reports',
+      icon              : 'summarize',
+      alwaysVisible     : true,
       permissions       : {}
     },
     {

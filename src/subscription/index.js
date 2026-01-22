@@ -19,6 +19,9 @@ export { default as UsageDashboardPage } from './user/UsageDashboardPage';
 
 // Admin Pages
 export { default as PaymentValidationPage } from './admin/PaymentValidationPage';
+export { default as ApprovedPaymentsPage } from './admin/ApprovedPaymentsPage';
+export { default as RejectedPaymentsPage } from './admin/RejectedPaymentsPage';
+export { default as UserSummaryPage } from './admin/UserSummaryPage';
 export { default as DiscountManagementPage } from './admin/DiscountManagementPage';
 export { default as SlabManagementPage } from './admin/SlabManagementPage';
 export { default as PartnerManagementPage } from './admin/PartnerManagementPage';

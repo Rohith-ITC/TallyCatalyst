@@ -69,19 +69,30 @@
 }
 
 .payments-table th {
-  padding: 16px;
+  padding: 12px 8px;
   text-align: left;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   color: #333;
   border-bottom: 2px solid #e9ecef;
+  white-space: nowrap;
 }
 
 .payments-table td {
-  padding: 16px;
+  padding: 12px 8px;
   border-bottom: 1px solid #f0f0f0;
-  font-size: 14px;
+  font-size: 13px;
   color: #666;
+  vertical-align: top;
+}
+
+.total-amount {
+  font-weight: 600;
+  color: #333;
+}
+
+.actual-paid-amount {
+  font-weight: 600;
 }
 
 .payments-table tbody tr:hover {
@@ -91,6 +102,32 @@
 .invoice-number {
   font-weight: 600;
   color: #007bff;
+}
+
+.rejection-reason-cell {
+  max-width: 200px;
+  word-wrap: break-word;
+}
+
+.rejection-reason {
+  color: #dc3545;
+  font-weight: 500;
+  font-size: 13px;
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.no-rejection {
+  color: #999;
+  font-style: italic;
+}
+
+.rejection-reason-text {
+  color: #dc3545;
+  font-weight: 500;
 }
 
 .action-buttons {
@@ -145,7 +182,7 @@
 .validation-modal-content {
   background: #fff;
   border-radius: 12px;
-  max-width: 600px;
+  max-width: 900px;
   width: 90%;
   max-height: 90vh;
   overflow-y: auto;
@@ -205,6 +242,37 @@
 
 .payment-detail-row:last-child {
   border-bottom: none;
+}
+
+.payment-detail-row.highlight {
+  background: #f0f7ff;
+  padding: 16px;
+  border-radius: 6px;
+  margin-top: 8px;
+  border: 2px solid #007bff;
+}
+
+.payment-section {
+  margin-bottom: 32px;
+  padding-bottom: 24px;
+  border-bottom: 2px solid #e9ecef;
+}
+
+.payment-section:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.payment-section-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #333;
+  margin-bottom: 16px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid #007bff;
+  display: inline-block;
+  width: 100%;
 }
 
 .payment-detail-label {

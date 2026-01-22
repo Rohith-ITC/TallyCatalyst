@@ -358,3 +358,50 @@
   }
 }
 
+/* Pending Subscription Section */
+.pending-subscription-section {
+  margin-top: 24px;
+  padding: 20px;
+  background: #fff3cd;
+  border: 1px solid #ffeaa7;
+  border-radius: 10px;
+}
+
+.pending-subscription-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #ffeaa7;
+}
+
+.pending-subscription-header h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #856404;
+}
+
+.pending-subscription-details {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.pending-note {
+  grid-column: 1 / -1;
+  margin-top: 12px;
+  padding: 12px;
+  background: #fff;
+  border-radius: 8px;
+  border-left: 3px solid #ffc107;
+}
+
+.pending-note p {
+  margin: 0;
+  font-size: 13px;
+  color: #856404;
+  line-height: 1.5;
+}
+

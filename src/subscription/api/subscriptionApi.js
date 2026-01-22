@@ -65,6 +65,8 @@ export const createTrial = async (tallyLocationId = null) => {
 
 /**
  * Purchase new subscription
+ * Request: { internal_slab_id, billing_cycle, user_count, employee_partner_code?, payment_method?, payment_reference?, payment_proof_url?, payment_date? }
+ * Response: { subscription: {...}, billing: {...} }
  */
 export const purchaseSubscription = async (purchaseData) => {
   const response = await apiPost(`${BASE_URL}/purchase`, purchaseData);
@@ -73,10 +75,31 @@ export const purchaseSubscription = async (purchaseData) => {
 
 /**
  * Get current user's subscription
+ * Returns subscription object or null if no active subscription
+ * API returns: { success: true, data: { subscription object } }
  */
 export const getCurrentSubscription = async () => {
   const response = await apiGet(`${BASE_URL}/current`);
-  return response?.data || null;
+  // API returns subscription directly in data, not data.subscription
+  // Response structure: { success: true, data: { id, status, ... } }
+  if (response && response.success && response.data) {
+    return response.data;
+  }
+  return null;
+};
+
+/**
+ * Get pending subscription (pending_payment, pending_upgrade, pending_downgrade)
+ * Returns subscription object with billing info or null if no pending subscription
+ * API returns: { success: true, data: { subscription: {...}, billing: {...} } } or { success: true, data: null }
+ */
+export const getPendingSubscription = async () => {
+  const response = await apiGet(`${BASE_URL}/pending`);
+  // API returns null if no pending subscription, or { subscription: {...}, billing: {...} }
+  if (!response?.data || response.data === null) {
+    return null;
+  }
+  return response.data.subscription || null;
 };
 
 /**
@@ -89,6 +112,8 @@ export const getSubscriptionHistory = async (limit = 50, offset = 0) => {
 
 /**
  * Upgrade subscription
+ * Request: { new_slab_id, user_count?, payment_method?, payment_reference?, payment_proof_url?, payment_date? }
+ * Response: { subscription: {...}, billing: {...}, proRatedAmount, totalAmount, user_count, current_user_count, additional_users }
  */
 export const upgradeSubscription = async (upgradeData) => {
   const response = await apiPost(`${BASE_URL}/upgrade`, upgradeData);
@@ -97,6 +122,8 @@ export const upgradeSubscription = async (upgradeData) => {
 
 /**
  * Downgrade subscription
+ * Request: { new_slab_id }
+ * Response: { subscription: {...}, creditAmount, status, message }
  */
 export const downgradeSubscription = async (downgradeData) => {
   const response = await apiPost(`${BASE_URL}/downgrade`, downgradeData);
@@ -107,6 +134,7 @@ export const downgradeSubscription = async (downgradeData) => {
 
 /**
  * Get billing history
+ * Returns array of billing records from response.data
  */
 export const getBillingHistory = async (filters = {}) => {
   const { limit = 50, offset = 0, status = '' } = filters;
@@ -115,15 +143,24 @@ export const getBillingHistory = async (filters = {}) => {
     url += `&status=${status}`;
   }
   const response = await apiGet(url);
-  return response?.data || [];
+  // API returns { success: true, data: [...] }
+  if (response && response.success && Array.isArray(response.data)) {
+    return response.data;
+  }
+  return [];
 };
 
 /**
  * Get specific invoice
+ * Returns invoice object from response.data or response directly
  */
 export const getInvoice = async (id) => {
   const response = await apiGet(`${BASE_URL}/billing/invoice/${id}`);
-  return response?.data || null;
+  // API may return { success: true, data: {...} } or just the invoice object
+  if (response && response.success && response.data) {
+    return response.data;
+  }
+  return response || null;
 };
 
 /**
@@ -167,15 +204,23 @@ export const getUsageLimits = async () => {
 
 /**
  * Get all pending payment validations (Superadmin only)
+ * Response: { success: true, data: [...] }
  */
 export const getPendingPayments = async (filters = {}) => {
-  const { limit = 10, offset = 0, date_from = '' } = filters;
+  const { limit = 10, offset = 0, date_from = '', validated_by = '' } = filters;
   let url = `${BASE_URL}/admin/payments/pending?limit=${limit}&offset=${offset}`;
   if (date_from) {
     url += `&date_from=${date_from}`;
   }
+  if (validated_by) {
+    url += `&validated_by=${validated_by}`;
+  }
   const response = await apiGet(url);
-  return response?.data || [];
+  // API returns { success: true, data: [...] }
+  if (response && response.success && Array.isArray(response.data)) {
+    return response.data;
+  }
+  return [];
 };
 
 /**
@@ -195,6 +240,78 @@ export const validatePayment = async (id, action, validationNotes = '') => {
     validation_notes: validationNotes
   });
   return response?.data || null;
+};
+
+/**
+ * Get all approved payments (Superadmin only)
+ * Response: { success: true, data: [...] }
+ */
+export const getApprovedPayments = async (filters = {}) => {
+  const { limit = 50, offset = 0, date_from = '', date_to = '', validated_by = '' } = filters;
+  let url = `${BASE_URL}/admin/payments/approved?limit=${limit}&offset=${offset}`;
+  if (date_from) {
+    url += `&date_from=${date_from}`;
+  }
+  if (date_to) {
+    url += `&date_to=${date_to}`;
+  }
+  if (validated_by) {
+    url += `&validated_by=${validated_by}`;
+  }
+  const response = await apiGet(url);
+  // API returns { success: true, data: [...] }
+  if (response && response.success && Array.isArray(response.data)) {
+    return response.data;
+  }
+  return [];
+};
+
+/**
+ * Get all rejected payments (Superadmin only)
+ * Response: { success: true, data: [...] }
+ */
+export const getRejectedPayments = async (filters = {}) => {
+  const { limit = 50, offset = 0, date_from = '', date_to = '', validated_by = '' } = filters;
+  let url = `${BASE_URL}/admin/payments/rejected?limit=${limit}&offset=${offset}`;
+  if (date_from) {
+    url += `&date_from=${date_from}`;
+  }
+  if (date_to) {
+    url += `&date_to=${date_to}`;
+  }
+  if (validated_by) {
+    url += `&validated_by=${validated_by}`;
+  }
+  const response = await apiGet(url);
+  // API returns { success: true, data: [...] }
+  if (response && response.success && Array.isArray(response.data)) {
+    return response.data;
+  }
+  return [];
+};
+
+/**
+ * Get user summary report (Superadmin only)
+ * Response: { success: true, data: [...] }
+ */
+export const getUserSummary = async (filters = {}) => {
+  const { limit = 100, offset = 0, status = '', partner_id = '', employee_id = '' } = filters;
+  let url = `${BASE_URL}/admin/users/summary?limit=${limit}&offset=${offset}`;
+  if (status) {
+    url += `&status=${status}`;
+  }
+  if (partner_id) {
+    url += `&partner_id=${partner_id}`;
+  }
+  if (employee_id) {
+    url += `&employee_id=${employee_id}`;
+  }
+  const response = await apiGet(url);
+  // API returns { success: true, data: [...] }
+  if (response && response.success && Array.isArray(response.data)) {
+    return response.data;
+  }
+  return [];
 };
 
 /**
@@ -289,5 +406,32 @@ export const getPartnerDashboard = async () => {
 export const getEmployeeDashboard = async () => {
   const response = await apiGet(`${BASE_URL}/employee/dashboard`);
   return response?.data || null;
+};
+
+// ==================== Wallet APIs ====================
+
+/**
+ * Get wallet balance
+ */
+export const getWalletBalance = async () => {
+  const response = await apiGet(`${BASE_URL}/wallet/balance`);
+  return response?.data || null;
+};
+
+/**
+ * Get wallet transactions
+ * Query params: transaction_type?, reference_type?, limit?, offset?
+ */
+export const getWalletTransactions = async (filters = {}) => {
+  const { transaction_type, reference_type, limit = 50, offset = 0 } = filters;
+  let url = `${BASE_URL}/wallet/transactions?limit=${limit}&offset=${offset}`;
+  if (transaction_type) {
+    url += `&transaction_type=${transaction_type}`;
+  }
+  if (reference_type) {
+    url += `&reference_type=${reference_type}`;
+  }
+  const response = await apiGet(url);
+  return response?.data || [];
 };
 

@@ -18,7 +18,7 @@ function TrialReminderModal() {
     try {
       const status = await getTrialStatus();
       
-      if (status && status.isTrial && status.daysRemaining <= 7 && !status.reminderDismissed) {
+      if (status && status.isTrial && status.daysRemaining !== null && status.daysRemaining <= 7 && status.daysRemaining > 0 && !status.reminderDismissed) {
         setTrialStatus(status);
         
         // Fetch plans for display
@@ -65,7 +65,14 @@ function TrialReminderModal() {
 
   if (!showModal || !trialStatus) return null;
 
-  const daysRemaining = trialStatus.daysRemaining || getTrialDaysRemaining(trialStatus.trialEndDate);
+  const daysRemaining = trialStatus.daysRemaining !== undefined 
+    ? trialStatus.daysRemaining 
+    : getTrialDaysRemaining(trialStatus.trialEndDate);
+  
+  // Don't show modal if trial is expired
+  if (daysRemaining === null || daysRemaining <= 0) {
+    return null;
+  }
 
   return (
     <div
