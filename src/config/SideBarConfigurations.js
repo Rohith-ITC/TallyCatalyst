@@ -134,16 +134,16 @@ export const MODULE_SEQUENCE = [
           icon          : 'account_balance_wallet',
           permissions   : {},
           requiredModules: ['vendor_expenses'] // Show if user has access to vendor_expenses
+        },
+        {
+          key           : 'custom_reports',
+          id            : 'custom_reports',
+          label         : 'Custom Reports',
+          icon          : 'summarize',
+          permissions   : {},
+          alwaysVisible : true // Always show Custom Reports in the dropdown
         }
       ],
-      permissions       : {}
-    },
-    {
-      key               : 'custom_reports',
-      id                : 'custom_reports',
-      label             : 'Custom Reports',
-      icon              : 'summarize',
-      alwaysVisible     : true,
       permissions       : {}
     },
     {
@@ -294,6 +294,10 @@ export const hasModuleAccess = (moduleKey, userModules) => {
 
   // Check if submodule should be visible based on required modules
   export const hasRequiredModuleAccess = (subModule, userModules) => {
+    // If submodule is alwaysVisible, always show it
+    if (subModule.alwaysVisible === true) {
+      return true;
+    }
     // If submodule has requiredModules, check if user has access to any of them
     if (subModule.requiredModules && Array.isArray(subModule.requiredModules)) {
       return subModule.requiredModules.some(moduleKey => 
