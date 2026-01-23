@@ -1,7 +1,7 @@
 # React Router handling
 Options -MultiViews
 RewriteEngine On
-RewriteBase /Development/CustomerPortal/
+#RewriteBase /Development/CustomerPortal/
 
 # If request is for /api/* → send to Node backend
 RewriteCond %{REQUEST_URI} ^/Development/CustomerPortal/api
