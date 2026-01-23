@@ -43,12 +43,74 @@ module.exports = {
       ];
 
       // Optimize chunk splitting to prevent loading issues
+      // Heavy libraries are split into separate chunks to reduce initial bundle size
       webpackConfig.optimization = {
         ...webpackConfig.optimization,
         runtimeChunk: 'single', // Extract runtime into a separate chunk
         splitChunks: {
           chunks: 'all',
+          minSize: 20000, // Minimum chunk size (20KB)
+          maxSize: 500000, // Maximum chunk size (500KB) - auto-split larger chunks
+          maxAsyncRequests: 30,
+          maxInitialRequests: 30,
           cacheGroups: {
+            // Separate chunk for echarts (1-2MB)
+            echarts: {
+              test: /[\\/]node_modules[\\/]echarts[\\/]/,
+              name: 'echarts',
+              chunks: 'all',
+              priority: 40,
+              enforce: true,
+            },
+            // Separate chunk for nivo charts
+            nivo: {
+              test: /[\\/]node_modules[\\/]@nivo[\\/]/,
+              name: 'nivo',
+              chunks: 'all',
+              priority: 35,
+              enforce: true,
+            },
+            // Separate chunk for d3 (dependency of nivo)
+            d3: {
+              test: /[\\/]node_modules[\\/]d3.*[\\/]/,
+              name: 'd3',
+              chunks: 'all',
+              priority: 30,
+              enforce: true,
+            },
+            // Separate chunk for recharts
+            recharts: {
+              test: /[\\/]node_modules[\\/]recharts[\\/]/,
+              name: 'recharts',
+              chunks: 'all',
+              priority: 25,
+              enforce: true,
+            },
+            // Separate chunk for xlsx (Excel handling)
+            xlsx: {
+              test: /[\\/]node_modules[\\/]xlsx[\\/]/,
+              name: 'xlsx',
+              chunks: 'all',
+              priority: 20,
+              enforce: true,
+            },
+            // Separate chunk for jspdf
+            jspdf: {
+              test: /[\\/]node_modules[\\/](jspdf|jspdf-autotable)[\\/]/,
+              name: 'jspdf',
+              chunks: 'all',
+              priority: 20,
+              enforce: true,
+            },
+            // MUI components
+            mui: {
+              test: /[\\/]node_modules[\\/]@mui[\\/]/,
+              name: 'mui',
+              chunks: 'all',
+              priority: 15,
+              enforce: true,
+            },
+            // Remaining vendors
             defaultVendors: {
               test: /[\\/]node_modules[\\/]/,
               priority: -10,

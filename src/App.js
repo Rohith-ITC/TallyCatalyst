@@ -157,8 +157,11 @@ function App() {
     setShowTallyConfig(show);
   };
   
+  // Get basename from environment variable or use /Development as default (matches package.json homepage)
+  const basename = process.env.REACT_APP_HOMEPAGE || process.env.PUBLIC_URL || '/Development';
+  
   return (
-    <Router basename={process.env.REACT_APP_HOMEPAGE || ''}>
+    <Router basename={basename}>
       <Suspense fallback={null}>
         <Routes>
           <Route path="/" element={<Login onLogin={handleLogin} />} />
