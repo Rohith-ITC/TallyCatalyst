@@ -19,7 +19,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { Tooltip, Menu, MenuItem, IconButton } from '@mui/material';
+import { Tooltip, Menu, MenuItem, IconButton, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Button } from '@mui/material';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
@@ -235,6 +235,66 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   // Per-card period settings (stored in localStorage)
   const [cardPeriodSettings, setCardPeriodSettings] = useState({});
 
+  // Scale factor modal state
+  const [scaleFactorModal, setScaleFactorModal] = useState({
+    open: false,
+    cardId: null,
+    cardName: null,
+    valueFields: []
+  });
+  const [scaleFactors, setScaleFactors] = useState({}); // { cardId: { valueField: scaleFactor } }
+
+  // Ref to track if settings have been loaded from backend (to prevent saving on initial mount)
+  const settingsLoadedFromBackendRef = useRef(false);
+
+  // Save card period settings to localStorage whenever it changes
+  useEffect(() => {
+    try {
+      const companyInfo = getCompanyInfo();
+      if (companyInfo && companyInfo.guid && companyInfo.tallyloc_id) {
+        // Save each card period setting to localStorage (for backward compatibility)
+        Object.keys(cardPeriodSettings).forEach(cardName => {
+          const key = `cardPeriod_${cardName}_${companyInfo.guid}_${companyInfo.tallyloc_id}`;
+          localStorage.setItem(key, JSON.stringify(cardPeriodSettings[cardName]));
+        });
+      }
+    } catch (e) {
+      console.warn('Error saving card period settings to localStorage:', e);
+    }
+  }, [cardPeriodSettings]);
+
+  // Load scale factors from localStorage on mount
+  useEffect(() => {
+    try {
+      const companyInfo = getCompanyInfo();
+      if (companyInfo && companyInfo.guid && companyInfo.tallyloc_id) {
+        const key = `cardScaleFactors_${companyInfo.guid}_${companyInfo.tallyloc_id}`;
+        const stored = localStorage.getItem(key);
+        if (stored) {
+          setScaleFactors(JSON.parse(stored));
+        }
+      }
+    } catch (e) {
+      console.warn('Error loading scale factors from localStorage:', e);
+    }
+  }, []);
+
+  // Save scale factors to localStorage whenever it changes (debounced to avoid too many writes)
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      try {
+        const companyInfo = getCompanyInfo();
+        if (companyInfo && companyInfo.guid && companyInfo.tallyloc_id) {
+          const key = `cardScaleFactors_${companyInfo.guid}_${companyInfo.tallyloc_id}`;
+          localStorage.setItem(key, JSON.stringify(scaleFactors));
+        }
+      } catch (e) {
+        console.warn('Error saving scale factors to localStorage:', e);
+      }
+    }, 500); // Debounce by 500ms
+
+    return () => clearTimeout(timeoutId);
+  }, [scaleFactors]);
 
   // Calendar modal state
   const [showCalendarModal, setShowCalendarModal] = useState(false);
@@ -298,7 +358,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     return {};
   });
 
-  // Save card visibility to localStorage whenever it changes
+  // Save card visibility to localStorage and backend whenever it changes
   useEffect(() => {
     try {
       localStorage.setItem('salesDashboardCardVisibility', JSON.stringify(cardVisibility));
@@ -320,7 +380,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     return {};
   });
 
-  // Save card sort index to localStorage whenever it changes
+  // Save card sort index to localStorage and backend whenever it changes
   useEffect(() => {
     try {
       localStorage.setItem('salesDashboardCardSortIndex', JSON.stringify(cardSortIndex));
@@ -877,8 +937,14 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
       if (response && response.status === 'success' && response.data) {
         const cards = Array.isArray(response.data) ? response.data : [];
-        // Filter only active cards and flatten cardConfig properties
-        const activeCards = cards.filter(card => card.isActive !== 0).map(card => {
+        // Filter only active cards, exclude settings card, and flatten cardConfig properties
+        const activeCards = cards
+          .filter(card => 
+            card.isActive !== 0 && 
+            card.title !== '__DASHBOARD_SETTINGS__' && 
+            card.isSettings !== true
+          )
+          .map(card => {
           // Flatten cardConfig properties to top level if they exist
           const flatCard = { ...card };
 
@@ -991,6 +1057,269 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     }
   }, []);
 
+  // Fallback function to load settings from localStorage
+  const loadSettingsFromLocalStorage = useCallback(() => {
+    try {
+      const companyInfo = getCompanyInfo();
+      if (!companyInfo || !companyInfo.guid) return;
+
+      // Load card visibility from localStorage
+      const storedVisibility = localStorage.getItem('salesDashboardCardVisibility');
+      if (storedVisibility) {
+        try {
+          const visibility = JSON.parse(storedVisibility);
+          setCardVisibility(visibility);
+        } catch (e) {
+          console.warn('Error parsing card visibility from localStorage:', e);
+        }
+      }
+
+      // Load card sort index from localStorage
+      const storedSortIndex = localStorage.getItem('salesDashboardCardSortIndex');
+      if (storedSortIndex) {
+        try {
+          const sortIndex = JSON.parse(storedSortIndex);
+          setCardSortIndex(sortIndex);
+        } catch (e) {
+          console.warn('Error parsing card sort index from localStorage:', e);
+        }
+      }
+
+      // Load card period settings from localStorage
+      const cardSettings = {};
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith(`cardPeriod_`) && key.includes(companyInfo.guid)) {
+          try {
+            const value = localStorage.getItem(key);
+            if (value) {
+              const periodData = JSON.parse(value);
+              const parts = key.split('_');
+              const guidIndex = parts.findIndex(p => p === companyInfo.guid);
+              if (guidIndex > 1) {
+                const cardName = parts.slice(1, guidIndex).join('_');
+                cardSettings[cardName] = periodData;
+              }
+            }
+          } catch (e) {
+            console.warn('Failed to parse card period setting:', key, e);
+          }
+        }
+      }
+      if (Object.keys(cardSettings).length > 0) {
+        setCardPeriodSettings(cardSettings);
+      }
+    } catch (error) {
+      console.error('❌ Error loading settings from localStorage:', error);
+    }
+  }, []);
+
+  // Load dashboard settings from backend (from cards endpoint)
+  const loadDashboardSettings = useCallback(async () => {
+    try {
+      const companyInfo = getCompanyInfo();
+      const { tallyloc_id, guid } = companyInfo;
+
+      if (!tallyloc_id || !guid) {
+        console.warn('⚠️ Missing company information, skipping dashboard settings load');
+        return;
+      }
+
+      // Load from cards endpoint and find the settings card
+      const endpoint = `${API_CONFIG.ENDPOINTS.CUSTOM_CARD_GET}?tallylocId=${tallyloc_id}&coGuid=${guid}&dashboardType=sales`;
+      const response = await apiGet(endpoint);
+
+      if (response && response.status === 'success' && response.data) {
+        const cards = Array.isArray(response.data) ? response.data : [];
+        
+        // Find the settings card by identifier
+        const settingsCard = cards.find(card => 
+          card.title === '__DASHBOARD_SETTINGS__' || 
+          card.isSettings === true ||
+          (card.cardConfig && typeof card.cardConfig === 'string' && card.cardConfig.includes('cardVisibility'))
+        );
+
+        if (settingsCard) {
+          // Parse cardConfig to get settings
+          let parsedCardConfig = settingsCard.cardConfig;
+          if (typeof parsedCardConfig === 'string') {
+            try {
+              parsedCardConfig = JSON.parse(parsedCardConfig);
+            } catch (e) {
+              console.warn('Failed to parse settings cardConfig:', e);
+              parsedCardConfig = {};
+            }
+          }
+
+          const settings = parsedCardConfig || {};
+
+          // Load card visibility
+          if (settings.cardVisibility && typeof settings.cardVisibility === 'object') {
+            setCardVisibility(settings.cardVisibility);
+            // Also update localStorage as fallback
+            localStorage.setItem('salesDashboardCardVisibility', JSON.stringify(settings.cardVisibility));
+            console.log('✅ Loaded card visibility from backend:', settings.cardVisibility);
+          }
+
+          // Load card sort index
+          if (settings.cardSortIndex && typeof settings.cardSortIndex === 'object') {
+            setCardSortIndex(settings.cardSortIndex);
+            // Also update localStorage as fallback
+            localStorage.setItem('salesDashboardCardSortIndex', JSON.stringify(settings.cardSortIndex));
+            console.log('✅ Loaded card sort index from backend:', settings.cardSortIndex);
+          }
+
+          // Load card period settings
+          if (settings.cardPeriodSettings && typeof settings.cardPeriodSettings === 'object') {
+            setCardPeriodSettings(settings.cardPeriodSettings);
+            // Also update localStorage as fallback
+            Object.keys(settings.cardPeriodSettings).forEach(cardName => {
+              const key = `cardPeriod_${cardName}_${guid}_${tallyloc_id}`;
+              localStorage.setItem(key, JSON.stringify(settings.cardPeriodSettings[cardName]));
+            });
+            console.log('✅ Loaded card period settings from backend:', settings.cardPeriodSettings);
+          }
+
+          // Mark that settings have been loaded from backend
+          settingsLoadedFromBackendRef.current = true;
+        } else {
+          console.log('⚠️ No dashboard settings card found in backend, using localStorage fallback');
+          // Fallback to localStorage if backend doesn't have settings
+          loadSettingsFromLocalStorage();
+          // Mark as loaded even if from localStorage (to allow future saves)
+          settingsLoadedFromBackendRef.current = true;
+        }
+      } else {
+        console.log('⚠️ No dashboard settings found in backend, using localStorage fallback');
+        // Fallback to localStorage if backend doesn't have settings
+        loadSettingsFromLocalStorage();
+        // Mark as loaded even if from localStorage (to allow future saves)
+        settingsLoadedFromBackendRef.current = true;
+      }
+      } catch (error) {
+      console.error('❌ Error loading dashboard settings from backend:', error);
+      // Fallback to localStorage on error
+      loadSettingsFromLocalStorage();
+      // Mark as loaded even if from localStorage (to allow future saves)
+      settingsLoadedFromBackendRef.current = true;
+    }
+  }, [loadSettingsFromLocalStorage]);
+
+  // Save dashboard settings to backend (using cards endpoint with settings identifier)
+  const saveDashboardSettings = useCallback(async (settingsToSave = null) => {
+    try {
+      const companyInfo = getCompanyInfo();
+      const { tallyloc_id, guid } = companyInfo;
+
+      if (!tallyloc_id || !guid) {
+        console.warn('⚠️ Missing company information, skipping dashboard settings save');
+        return;
+      }
+
+      // Use provided settings or current state
+      const settings = settingsToSave || {
+        cardVisibility: cardVisibility,
+        cardSortIndex: cardSortIndex,
+        cardPeriodSettings: cardPeriodSettings
+      };
+
+      // Create payload in the same format as cards, but with settings identifier
+      const payload = {
+        tallylocId: tallyloc_id,
+        coGuid: guid,
+        dashboardType: 'sales',
+        title: '__DASHBOARD_SETTINGS__', // Special identifier for settings
+        chartType: 'settings', // Identifier field
+        groupBy: 'settings', // Identifier field
+        valueField: 'settings', // Identifier field
+        aggregation: 'settings', // Identifier field
+        isSettings: true, // Flag to identify this as settings
+        cardConfig: {
+          cardVisibility: settings.cardVisibility || {},
+          cardSortIndex: settings.cardSortIndex || {},
+          cardPeriodSettings: settings.cardPeriodSettings || {}
+        },
+        sortOrder: -9999, // Special sort order to distinguish from regular cards
+        isActive: 1
+      };
+
+      console.log('📤 Sending dashboard settings to backend (via cards endpoint):', {
+        endpoint: API_CONFIG.ENDPOINTS.CUSTOM_CARD_CREATE,
+        payload: {
+          ...payload,
+          cardConfig: {
+            cardVisibility: Object.keys(payload.cardConfig.cardVisibility || {}).length + ' cards',
+            cardSortIndex: Object.keys(payload.cardConfig.cardSortIndex || {}).length + ' cards',
+            cardPeriodSettings: Object.keys(payload.cardConfig.cardPeriodSettings || {}).length + ' cards'
+          }
+        }
+      });
+
+      // First, try to find existing settings card to update it
+      const getEndpoint = `${API_CONFIG.ENDPOINTS.CUSTOM_CARD_GET}?tallylocId=${tallyloc_id}&coGuid=${guid}&dashboardType=sales`;
+      const getResponse = await apiGet(getEndpoint);
+      
+      let settingsCardId = null;
+      if (getResponse && getResponse.status === 'success' && getResponse.data) {
+        const cards = Array.isArray(getResponse.data) ? getResponse.data : [];
+        const settingsCard = cards.find(card => 
+          card.title === '__DASHBOARD_SETTINGS__' || 
+          card.isSettings === true ||
+          (card.cardConfig && typeof card.cardConfig === 'string' && card.cardConfig.includes('cardVisibility'))
+        );
+        if (settingsCard) {
+          settingsCardId = settingsCard.id;
+        }
+      }
+
+      let response;
+      if (settingsCardId) {
+        // Update existing settings card
+        const updateEndpoint = API_CONFIG.ENDPOINTS.CUSTOM_CARD_UPDATE(settingsCardId);
+        response = await apiPut(updateEndpoint, payload);
+      } else {
+        // Create new settings card
+        response = await apiPost(API_CONFIG.ENDPOINTS.CUSTOM_CARD_CREATE, payload);
+      }
+
+      if (response && response.status === 'success') {
+        console.log('✅ Dashboard settings saved to backend successfully', response);
+        return true;
+      } else {
+        console.warn('⚠️ Failed to save dashboard settings to backend:', response);
+        return false;
+      }
+    } catch (error) {
+      console.error('❌ Error saving dashboard settings to backend:', error);
+      return false;
+    }
+  }, [cardVisibility, cardSortIndex, cardPeriodSettings]);
+
+  // Save all dashboard settings to backend whenever any setting changes (debounced)
+  useEffect(() => {
+    // Skip saving if settings haven't been loaded from backend yet (prevents saving on initial mount)
+    if (!settingsLoadedFromBackendRef.current) {
+      return;
+    }
+
+    // Debounce the save to avoid too many API calls
+    const timeoutId = setTimeout(() => {
+      saveDashboardSettings();
+    }, 1500); // Wait 1.5 seconds after last change before saving
+
+    return () => clearTimeout(timeoutId);
+  }, [cardVisibility, cardSortIndex, cardPeriodSettings, saveDashboardSettings]);
+
+  // Handle closing settings modal - save settings immediately before closing
+  const handleCloseSettingsModal = useCallback(async () => {
+    // Save settings to backend immediately (no debounce)
+    if (settingsLoadedFromBackendRef.current) {
+      await saveDashboardSettings();
+    }
+    // Close the modal
+    setShowSettingsModal(false);
+  }, [saveDashboardSettings]);
+
   // Load custom cards on mount and when company changes
   useEffect(() => {
     const loadCards = async () => {
@@ -1003,38 +1332,10 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         }
 
         await loadCustomCards();
-
-        // Load card period settings from localStorage
-        const companyInfo = getCompanyInfo();
-        if (companyInfo && companyInfo.guid) {
-          const cardSettings = {};
-          // Get all localStorage keys that match card period pattern
-          for (let i = 0; i < localStorage.length; i++) {
-            const key = localStorage.key(i);
-            if (key && key.startsWith(`cardPeriod_`) && key.includes(companyInfo.guid)) {
-              try {
-                const value = localStorage.getItem(key);
-                if (value) {
-                  const periodData = JSON.parse(value);
-                  // Extract card name from key: cardPeriod_{cardName}_{guid}_{tallyloc_id}
-                  const parts = key.split('_');
-                  // Find where the card name ends (before the guid)
-                  const guidIndex = parts.findIndex(p => p === companyInfo.guid);
-                  if (guidIndex > 1) {
-                    const cardName = parts.slice(1, guidIndex).join('_');
-                    cardSettings[cardName] = periodData;
-                  }
-                }
-              } catch (e) {
-                console.warn('Failed to parse card period setting:', key, e);
-              }
-            }
-          }
-          if (Object.keys(cardSettings).length > 0) {
-            console.log('📅 Loaded card period settings:', cardSettings);
-            setCardPeriodSettings(cardSettings);
-          }
-        }
+        // Reset the settings loaded flag when company changes
+        settingsLoadedFromBackendRef.current = false;
+        // Load dashboard settings from backend (with localStorage fallback)
+        await loadDashboardSettings();
       } catch (error) {
         console.error('❌ Error in loadCards useEffect:', error);
       }
@@ -4676,6 +4977,16 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     return grouped;
   };
 
+  // Helper function to apply scale factors to a value for a standard card
+  const applyScaleFactorToValue = useCallback((cardName, fieldName, value) => {
+    if (typeof value !== 'number') return value;
+    const scaleFactor = scaleFactors[cardName]?.[fieldName];
+    if (scaleFactor && scaleFactor > 0 && typeof scaleFactor === 'number') {
+      return value / scaleFactor;
+    }
+    return value;
+  }, [scaleFactors]);
+
   // Category chart data
   const categoryChartData = useMemo(() => {
     const dataSource = getCardDataSource('Sales by Stock Group');
@@ -4715,11 +5026,11 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     return Object.entries(categoryData)
       .map(([label, value], index) => ({
         label,
-        value,
+        value: applyScaleFactorToValue('Sales by Stock Group', 'amount', value),
         color: colors[index % colors.length],
       }))
       .sort((a, b) => b.value - a.value);
-  }, [filteredSales]);
+  }, [filteredSales, applyScaleFactorToValue]);
 
   // Ledger Group chart data
   const ledgerGroupChartData = useMemo(() => {
@@ -4760,11 +5071,11 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     return Object.entries(ledgerGroupData)
       .map(([label, value], index) => ({
         label,
-        value,
+        value: applyScaleFactorToValue('Sales by Ledger Group', 'amount', value),
         color: colors[index % colors.length],
       }))
       .sort((a, b) => b.value - a.value);
-  }, [getCardDataSource, filteredSales]); // Add filteredSales to dependencies to ensure cross-filtering works
+  }, [getCardDataSource, filteredSales, applyScaleFactorToValue]); // Add filteredSales to dependencies to ensure cross-filtering works
 
   // Region chart data
   const regionChartData = useMemo(() => {
@@ -4795,11 +5106,11 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     return Object.entries(regionData)
       .map(([label, value], index) => ({
         label,
-        value,
+        value: applyScaleFactorToValue('Sales by State', 'amount', value),
         color: regionColors[index % regionColors.length],
       }))
       .sort((a, b) => b.value - a.value);
-  }, [getCardDataSource]);
+  }, [getCardDataSource, applyScaleFactorToValue]);
 
   // Pincode chart data for selected region (drill-down from state map)
   // This should show all pincodes in the region, regardless of selectedPincode filter
@@ -4870,11 +5181,11 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     return Object.entries(countryData)
       .map(([label, value], index) => ({
         label: label || 'Unknown',
-        value,
+        value: applyScaleFactorToValue('Sales by Country', 'amount', value),
         color: countryColors[index % countryColors.length],
       }))
       .sort((a, b) => b.value - a.value);
-  }, [getCardDataSource]);
+  }, [getCardDataSource, applyScaleFactorToValue]);
 
   // State chart data for selected country (drill-down from country map)
   // Currently supports India - can be extended for other countries with state data
@@ -4960,7 +5271,12 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       entry.billCount += 1;
     });
 
-    const result = Array.from(salespersonMap.values()).sort((a, b) => b.value - a.value);
+    const result = Array.from(salespersonMap.values())
+      .map(item => ({
+        ...item,
+        value: applyScaleFactorToValue('Salesperson Totals', 'amount', item.value)
+      }))
+      .sort((a, b) => b.value - a.value);
 
     // Debug logging
     console.log('🔍 Salesperson Totals Debug:', {
@@ -4974,7 +5290,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     });
 
     return result;
-  }, [getCardDataSource, enabledSalespersons, sales.length]);
+  }, [getCardDataSource, enabledSalespersons, sales.length, applyScaleFactorToValue]);
 
   // Initialize enabledSalespersons with all salespersons when sales are first loaded
   useEffect(() => {
@@ -5029,12 +5345,12 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     return Object.entries(customerData)
       .map(([label, value], index) => ({
         label,
-        value,
+        value: applyScaleFactorToValue('Top Customers Chart', 'amount', value),
         color: customerColors[index % customerColors.length],
       }))
       .sort((a, b) => b.value - a.value)
       .slice(0, topCustomersN > 0 ? topCustomersN : undefined);
-  }, [getCardDataSource, topCustomersN]);
+  }, [getCardDataSource, topCustomersN, applyScaleFactorToValue]);
 
   // Top items by revenue data
   const topItemsByRevenueData = useMemo(() => {
@@ -5081,12 +5397,12 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     return Object.entries(itemData)
       .map(([label, data], index) => ({
         label,
-        value: data.revenue,
+        value: applyScaleFactorToValue('Top Items by Revenue Chart', 'amount', data.revenue),
         color: itemColors[index % itemColors.length],
       }))
       .sort((a, b) => b.value - a.value)
       .slice(0, topItemsByRevenueN > 0 ? topItemsByRevenueN : undefined);
-  }, [getCardDataSource, topItemsByRevenueN]);
+  }, [getCardDataSource, topItemsByRevenueN, applyScaleFactorToValue]);
 
   // Top items by quantity data
   const topItemsByQuantityData = useMemo(() => {
@@ -5133,12 +5449,12 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     return Object.entries(itemData)
       .map(([label, data], index) => ({
         label,
-        value: data.quantity,
+        value: applyScaleFactorToValue('Top Items by Quantity Chart', 'quantity', data.quantity),
         color: quantityColors[index % quantityColors.length],
       }))
       .sort((a, b) => b.value - a.value)
       .slice(0, topItemsByQuantityN > 0 ? topItemsByQuantityN : undefined);
-  }, [getCardDataSource, topItemsByQuantityN]);
+  }, [getCardDataSource, topItemsByQuantityN, applyScaleFactorToValue]);
 
   // Period chart data (monthly) - based on cp_date from API
   const periodChartData = useMemo(() => {
@@ -5193,7 +5509,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         const formattedLabel = `${monthNames[parseInt(month) - 1]}-${year.slice(2)}`;
         return {
           label: formattedLabel,
-          value,
+          value: applyScaleFactorToValue('Sales by Period', 'amount', value),
           color: periodColors[index % periodColors.length],
           originalLabel: label,
         };
@@ -5201,7 +5517,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
     // Sort by financial year order (April to March)
     return sortMonthsByFinancialYear(mappedData, fyStartMonth, fyStartDay);
-  }, [getCardDataSource]);
+  }, [getCardDataSource, applyScaleFactorToValue]);
 
   // Month-wise Revenue vs Profit chart data
   const revenueVsProfitChartData = useMemo(() => {
@@ -5241,8 +5557,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         return {
           label: formattedLabel,
           originalLabel: label,
-          revenue: data.revenue,
-          profit: data.profit,
+          revenue: applyScaleFactorToValue('Revenue vs Profit', 'amount', data.revenue),
+          profit: applyScaleFactorToValue('Revenue vs Profit', 'profit', data.profit),
         };
       });
 
@@ -5250,7 +5566,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     const sortedEntries = sortMonthsByFinancialYear(mappedData, fyStartMonth, fyStartDay);
 
     return sortedEntries;
-  }, [getCardDataSource]);
+  }, [getCardDataSource, applyScaleFactorToValue]);
 
   // Top 10 profitable items chart data
   const topProfitableItemsData = useMemo(() => {
@@ -5296,13 +5612,13 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     return Object.entries(itemData)
       .map(([label, data], index) => ({
         label,
-        value: data.profit,
-        revenue: data.revenue,
+        value: applyScaleFactorToValue('Top Profitable Items', 'profit', data.profit),
+        revenue: applyScaleFactorToValue('Top Profitable Items', 'amount', data.revenue),
         color: profitColors[index % profitColors.length],
       }))
       .sort((a, b) => b.value - a.value)
       .slice(0, 10);
-  }, [getCardDataSource]);
+  }, [getCardDataSource, applyScaleFactorToValue]);
 
   // Top 10 loss items chart data (items with negative profit)
   const topLossItemsData = useMemo(() => {
@@ -5348,8 +5664,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     return Object.entries(itemData)
       .map(([label, data]) => ({
         label,
-        value: data.profit,
-        revenue: data.revenue,
+        value: applyScaleFactorToValue('Top Loss Items', 'profit', data.profit),
+        revenue: applyScaleFactorToValue('Top Loss Items', 'amount', data.revenue),
         color: lossColors[0], // Will be assigned properly
       }))
       .filter(item => item.value < 0) // Only items with negative profit
@@ -5359,7 +5675,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         ...item,
         color: lossColors[index % lossColors.length],
       }));
-  }, [getCardDataSource]);
+  }, [getCardDataSource, applyScaleFactorToValue]);
 
   // Month-wise profit chart data
   const monthWiseProfitChartData = useMemo(() => {
@@ -5412,7 +5728,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         const formattedLabel = `${monthNames[parseInt(month) - 1]}-${year.slice(2)}`;
         return {
           label: formattedLabel,
-          value,
+          value: applyScaleFactorToValue('Month-wise Profit', 'profit', value),
           color: profitColors[index % profitColors.length],
           originalLabel: label,
         };
@@ -5420,7 +5736,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
     // Sort by financial year order (April to March)
     return sortMonthsByFinancialYear(mappedData, fyStartMonth, fyStartDay);
-  }, [getCardDataSource]);
+  }, [getCardDataSource, applyScaleFactorToValue]);
 
   // Helper function to check if the current date range represents "today"
   const isTodayPeriod = () => {
@@ -6669,6 +6985,94 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
     return formatted;
   }, [numberFormat]);
+
+  // Helper function to get value fields for standard cards
+  const getStandardCardValueFields = useCallback((cardName) => {
+    // Map of standard card names to their value fields
+    const standardCardValueFields = {
+      'Sales by Ledger Group': ['amount'],
+      'Salesperson Totals': ['amount'],
+      'Sales by Stock Group': ['amount'],
+      'Sales by State': ['amount'],
+      'Sales by Country': ['amount'],
+      'Sales by Period': ['amount'],
+      'Top Customers Chart': ['amount'],
+      'Top Items by Revenue Chart': ['amount'],
+      'Top Items by Quantity Chart': ['quantity'],
+      'Revenue vs Profit': ['amount', 'profit'],
+      'Top Profitable Items': ['profit'],
+      'Top Loss Items': ['profit'],
+      'Month-wise Profit': ['profit']
+    };
+
+    const fields = standardCardValueFields[cardName] || ['amount'];
+    return fields.map(field => ({
+      field: field,
+      label: field === 'amount' ? 'Amount' : field === 'profit' ? 'Profit' : field === 'quantity' ? 'Quantity' : field,
+      type: 'standard'
+    }));
+  }, []);
+
+  // Helper function to get all value fields from a card (custom or standard)
+  const getCardValueFields = useCallback((card) => {
+    // If it's a standard card (has a title but no id or has a known standard card title)
+    if (card.title && !card.id) {
+      return getStandardCardValueFields(card.title);
+    }
+    
+    const valueFields = [];
+    
+    // For multi-axis cards, get fields from series
+    if (card.multiAxisSeries && Array.isArray(card.multiAxisSeries)) {
+      card.multiAxisSeries.forEach((series, index) => {
+        if (series.field) {
+          valueFields.push({
+            field: series.field,
+            label: series.label || series.field,
+            type: 'multiAxis',
+            seriesIndex: index
+          });
+        }
+      });
+    }
+    // For year compare cards, get fields from yearCompareValues
+    else if (card.yearCompareValues && Array.isArray(card.yearCompareValues)) {
+      card.yearCompareValues.forEach((valueField) => {
+        valueFields.push({
+          field: valueField,
+          label: valueField,
+          type: 'yearCompare'
+        });
+      });
+    }
+    // For regular cards, use valueField
+    else if (card.valueField) {
+      valueFields.push({
+        field: card.valueField,
+        label: card.valueField,
+        type: 'standard'
+      });
+    }
+    
+    return valueFields;
+  }, [getStandardCardValueFields]);
+
+  // Function to open scale factor modal
+  const handleOpenScaleFactorModal = useCallback((card) => {
+    const valueFields = getCardValueFields(card);
+    if (valueFields.length === 0) {
+      alert('This card does not have any value fields to configure scale factors.');
+      return;
+    }
+    // For standard cards, use card name as ID if no ID exists
+    const cardId = card.id || card.title || card.name;
+    setScaleFactorModal({
+      open: true,
+      cardId: cardId,
+      cardName: card.title || card.name,
+      valueFields: valueFields
+    });
+  }, [getCardValueFields]);
 
   // Custom Cards Helper Functions
   // Note: getFieldValue is defined earlier in the file (before metrics calculation)
@@ -8542,6 +8946,27 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
         // Sort segments by value descending
         segments.sort((a, b) => b.value - a.value);
+        
+        // Apply scale factors to segments
+        if (segments) {
+          const cardId = cardConfig.id;
+          const fieldKey = cardConfig.valueField;
+          const scaleFactor = scaleFactors[cardId]?.[fieldKey];
+          if (scaleFactor && scaleFactor > 0 && typeof scaleFactor === 'number') {
+            segments = segments.map(seg => ({
+              ...seg,
+              value: seg.value / scaleFactor
+            }));
+          }
+        }
+      }
+
+      // Apply scale factor to the main value
+      const cardId = cardConfig.id;
+      const fieldKey = cardConfig.valueField;
+      const scaleFactor = scaleFactors[cardId]?.[fieldKey];
+      if (scaleFactor && scaleFactor > 0 && typeof scaleFactor === 'number' && typeof value === 'number') {
+        value = value / scaleFactor;
       }
 
       return {
@@ -8698,7 +9123,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       ...item,
       color: item.segments ? colors[0] : colors[index % colors.length] // Use first color if stacked
     }));
-  }, []);
+  }, [scaleFactors, getFieldValue, parseDateFromNewFormat, parseDateFromAPI, getFinancialYearStartMonthDay, getNestedFieldValue, getNestedFieldValues]);
 
   const handleCreateCustomCard = useCallback(async (cardConfig) => {
     try {
@@ -10518,6 +10943,19 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             onClick={(e) => {
               e.stopPropagation();
               setCardMenuAnchors(prev => ({ ...prev, [cardName]: null }));
+              handleOpenScaleFactorModal({ title: cardName, id: cardId });
+            }}
+            style={{ padding: '8px 16px', cursor: 'pointer' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span className="material-icons" style={{ fontSize: '18px', color: '#64748b' }}>tune</span>
+              <span style={{ fontSize: '14px', color: '#374151' }}>Add Scale Factor</span>
+            </div>
+          </MenuItem>
+          <MenuItem
+            onClick={(e) => {
+              e.stopPropagation();
+              setCardMenuAnchors(prev => ({ ...prev, [cardName]: null }));
             }}
             style={{ cursor: 'default', padding: '8px 16px' }}
             onMouseDown={(e) => e.stopPropagation()}
@@ -10653,6 +11091,19 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span className="material-icons" style={{ fontSize: '18px', color: '#64748b' }}>calendar_month</span>
               <span style={{ fontSize: '14px', color: '#374151' }}>Change Period</span>
+            </div>
+          </MenuItem>
+          <MenuItem
+            onClick={(e) => {
+              e.stopPropagation();
+              setCardMenuAnchors(prev => ({ ...prev, [cardName]: null }));
+              handleOpenScaleFactorModal({ title: cardName, id: cardId });
+            }}
+            style={{ padding: '8px 16px', cursor: 'pointer' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span className="material-icons" style={{ fontSize: '18px', color: '#64748b' }}>tune</span>
+              <span style={{ fontSize: '14px', color: '#374151' }}>Add Scale Factor</span>
             </div>
           </MenuItem>
           <MenuItem
@@ -19591,6 +20042,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     formatChartCompactValue={formatChartCompactValue}
                     countryStateChartData={countryStateChartData}
                     regionPincodeChartData={regionPincodeChartData}
+                    scaleFactors={scaleFactors}
+                    handleOpenScaleFactorModal={handleOpenScaleFactorModal}
                   />
                 </div>
               );
@@ -21495,6 +21948,127 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         </div>
       )}
 
+      {/* Scale Factor Modal */}
+      <Dialog
+        open={scaleFactorModal.open}
+        onClose={() => setScaleFactorModal({ open: false, cardId: null, cardName: null, valueFields: [] })}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{
+          style: {
+            borderRadius: '16px',
+            padding: '0'
+          }
+        }}
+      >
+        <DialogTitle style={{
+          fontSize: '20px',
+          fontWeight: '700',
+          color: '#1e293b',
+          padding: '24px 24px 16px 24px',
+          borderBottom: '1px solid #e2e8f0'
+        }}>
+          Scale Factor - {scaleFactorModal.cardName}
+        </DialogTitle>
+        <DialogContent style={{ padding: '24px' }}>
+          <p style={{
+            fontSize: '13px',
+            color: '#64748b',
+            margin: '0 0 20px 0'
+          }}>
+            Enter scale factors for each value field. Values will be divided by the scale factor.
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {scaleFactorModal.valueFields.map((valueField, index) => {
+              const cardId = scaleFactorModal.cardId;
+              const fieldKey = valueField.field;
+              const currentScaleFactor = scaleFactors[cardId]?.[fieldKey] || '';
+              
+              return (
+                <div key={`${fieldKey}-${index}`} style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px',
+                  padding: '12px',
+                  background: '#f8fafc',
+                  borderRadius: '8px',
+                  border: '1px solid #e2e8f0'
+                }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <label style={{
+                      display: 'block',
+                      fontSize: '12px',
+                      fontWeight: '600',
+                      color: '#64748b',
+                      marginBottom: '4px'
+                    }}>
+                      {valueField.label}
+                    </label>
+                    <div style={{
+                      fontSize: '11px',
+                      color: '#94a3b8',
+                      fontFamily: 'monospace'
+                    }}>
+                      {valueField.field}
+                    </div>
+                  </div>
+                  <TextField
+                    type="number"
+                    value={currentScaleFactor}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setScaleFactors(prev => {
+                        const cardFactors = prev[cardId] || {};
+                        const newCardFactors = { ...cardFactors };
+                        if (value && value.trim() !== '') {
+                          const numValue = parseFloat(value);
+                          if (!isNaN(numValue) && numValue > 0) {
+                            newCardFactors[fieldKey] = numValue;
+                          } else {
+                            delete newCardFactors[fieldKey];
+                          }
+                        } else {
+                          delete newCardFactors[fieldKey];
+                        }
+                        return {
+                          ...prev,
+                          [cardId]: Object.keys(newCardFactors).length > 0 ? newCardFactors : undefined
+                        };
+                      });
+                    }}
+                    placeholder="e.g., 1000"
+                    size="small"
+                    inputProps={{
+                      min: 0,
+                      step: 0.01,
+                      style: { textAlign: 'right' }
+                    }}
+                    style={{ width: '120px' }}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        </DialogContent>
+        <DialogActions style={{
+          padding: '16px 24px',
+          borderTop: '1px solid #e2e8f0',
+          justifyContent: 'flex-end',
+          gap: '12px'
+        }}>
+          <Button
+            onClick={() => setScaleFactorModal({ open: false, cardId: null, cardName: null, valueFields: [] })}
+            style={{
+              color: '#64748b',
+              textTransform: 'none',
+              fontWeight: '500'
+            }}
+          >
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       {/* Resume Download Modal */}
       <ResumeDownloadModal
         isOpen={showResumeModal}
@@ -21528,9 +22102,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             justifyContent: 'center',
             padding: '20px'
           }}
-          onClick={(e) => {
+          onClick={async (e) => {
             if (e.target === e.currentTarget) {
-              setShowSettingsModal(false);
+              await handleCloseSettingsModal();
             }
           }}
         >
@@ -21568,7 +22142,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               </div>
               <button
                 type="button"
-                onClick={() => setShowSettingsModal(false)}
+                onClick={handleCloseSettingsModal}
                 style={{
                   background: '#f1f5f9',
                   border: 'none',
@@ -22064,7 +22638,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             }}>
               <button
                 type="button"
-                onClick={() => setShowSettingsModal(false)}
+                onClick={handleCloseSettingsModal}
                 style={{
                   padding: '8px 18px',
                   border: 'none',
@@ -30223,7 +30797,9 @@ const CustomCard = React.memo(({
   formatChartValue,
   formatChartCompactValue,
   countryStateChartData,
-  regionPincodeChartData
+  regionPincodeChartData,
+  scaleFactors = {},
+  handleOpenScaleFactorModal
 }) => {
   // Tooltip state for yearCompare charts - must be declared at the top (Rules of Hooks)
   const [yearCompareTooltip, setYearCompareTooltip] = useState(null);
@@ -30464,18 +31040,29 @@ const CustomCard = React.memo(({
       categories = card.topN && card.topN > 0 ? sorted.slice(0, card.topN).map(x => x.label) : sorted.map(x => x.label);
     }
 
-    const series = seriesMaps.map(({ def, map, color }) => ({
-      name: def.label || def.field || 'Series',
-      type: def.type || 'bar',
-      axis: def.axis || 'left',
-      color,
-      data: categories.map(label => map.get(label) || 0)
-    }));
+    const series = seriesMaps.map(({ def, map, color }) => {
+      // Apply scale factor for this series
+      const fieldKey = def.field;
+      const scaleFactor = scaleFactors[card.id]?.[fieldKey];
+      let seriesData = categories.map(label => map.get(label) || 0);
+      
+      if (scaleFactor && scaleFactor > 0 && typeof scaleFactor === 'number') {
+        seriesData = seriesData.map(val => typeof val === 'number' ? val / scaleFactor : val);
+      }
+      
+      return {
+        name: def.label || def.field || 'Series',
+        type: def.type || 'bar',
+        axis: def.axis || 'left',
+        color,
+        data: seriesData
+      };
+    });
 
     const result = { categories, series };
     console.log('✅ MultiAxisData: Final result:', result);
     return result;
-  }, [card, salesData, generateCustomCardData, chartType]);
+  }, [card, salesData, generateCustomCardData, chartType, scaleFactors]);
 
   // Prepare data for geographic map visualization
   const geoMapData = useMemo(() => {
@@ -31508,6 +32095,19 @@ const CustomCard = React.memo(({
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span className="material-icons" style={{ fontSize: '18px', color: '#64748b' }}>calendar_month</span>
               <span style={{ fontSize: '14px', color: '#374151' }}>Change Period</span>
+            </div>
+          </MenuItem>
+          <MenuItem
+            onClick={(e) => {
+              e.stopPropagation();
+              setMenuAnchor(null);
+              handleOpenScaleFactorModal(card);
+            }}
+            style={{ padding: '8px 16px', cursor: 'pointer' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span className="material-icons" style={{ fontSize: '18px', color: '#64748b' }}>tune</span>
+              <span style={{ fontSize: '14px', color: '#374151' }}>Add Scale Factor</span>
             </div>
           </MenuItem>
           {chartType !== 'yearCompare' && chartType !== 'companyCompare' && (

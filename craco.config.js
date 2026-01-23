@@ -35,6 +35,26 @@ module.exports = {
         "assert": require.resolve("assert/")
       };
 
+      // Resolve tslib from root node_modules to fix echarts/zrender issues
+      webpackConfig.resolve.alias = {
+        ...webpackConfig.resolve.alias,
+        // Resolve nested tslib references to root tslib
+        'echarts/node_modules/tslib/tslib.es6.js': path.resolve(__dirname, 'node_modules/tslib/tslib.js'),
+        'zrender/node_modules/tslib/tslib.es6.js': path.resolve(__dirname, 'node_modules/tslib/tslib.js'),
+      };
+
+      // Add a plugin to handle missing tslib.es6.js files
+      webpackConfig.plugins.push(
+        new webpack.NormalModuleReplacementPlugin(
+          /echarts[/\\]node_modules[/\\]tslib[/\\]tslib\.es6\.js$/,
+          require.resolve('tslib/tslib.js')
+        ),
+        new webpack.NormalModuleReplacementPlugin(
+          /zrender[/\\]node_modules[/\\]tslib[/\\]tslib\.es6\.js$/,
+          require.resolve('tslib/tslib.js')
+        )
+      );
+
       webpackConfig.plugins = [
         ...webpackConfig.plugins,
         new webpack.ProvidePlugin({

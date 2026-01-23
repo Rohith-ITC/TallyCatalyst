@@ -3,6 +3,7 @@ import { hybridCache } from '../utils/hybridCache';
 import { getNestedFieldValue, extractAllFieldsFromCache, getNestedFieldValues, HIERARCHY_MAP, getHierarchyLevel } from './salesdashboard/utils/fieldExtractor';
 import { loadUdfConfig, getAvailableUdfFields } from '../utils/udfConfigLoader';
 import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 import { apiGet, apiPost, apiPut, apiDelete } from '../utils/apiUtils';
 import { API_CONFIG } from '../config';
 
@@ -98,14 +99,27 @@ const CustomReports = () => {
             }
             
           // Map API response to report format
+          // Validate pivotConfig structure
+          let pivotConfig = reportConfig.pivotConfig || null;
+          if (pivotConfig && typeof pivotConfig === 'object') {
+            // Ensure pivotConfig has required structure
+            if (!pivotConfig.filters || !pivotConfig.rows || !pivotConfig.columns || !pivotConfig.values) {
+              // If structure is invalid, set to null
+              pivotConfig = null;
+            }
+          } else if (pivotConfig !== null) {
+            // If it's not null but also not an object, set to null
+            pivotConfig = null;
+          }
+          
           return {
             id: item.id.toString(),
             title: item.title,
             fields: reportConfig.fields || [],
             filters: reportConfig.filters || [],
             relationships: reportConfig.relationships || [],
-            pivotConfig: reportConfig.pivotConfig || null,
-            isPivotMode: reportConfig.isPivotMode || false,
+            pivotConfig: pivotConfig,
+            isPivotMode: reportConfig.isPivotMode && pivotConfig ? true : false, // Only true if pivotConfig is valid
             sortIndexes: reportConfig.sortIndexes || {},
             savedPivots: reportConfig.savedPivots || [],
             activePivotId: null,
@@ -938,8 +952,65 @@ const CustomReports = () => {
     if (config.filters && config.filters.length > 0) {
       config.filters.forEach(filter => {
         if (filter.values && filter.values.length > 0) {
+          // Check if this filter field is a date field with grouping
+          const filterFieldType = getFieldTypeFn ? getFieldTypeFn(filter.field) : 'text';
+          let dateGroupingForFilter = null;
+          
+          // First, check if the filter field itself has date grouping configured
+          if (filter.dateGrouping && filter.dateGrouping !== 'day') {
+            dateGroupingForFilter = filter.dateGrouping;
+          }
+          
+          // If not, check if this field is in rows with date grouping
+          if (!dateGroupingForFilter) {
+            const rowFieldWithGrouping = config.rows.find(r => r.field === filter.field && r.dateGrouping && r.dateGrouping !== 'day');
+            if (rowFieldWithGrouping) {
+              dateGroupingForFilter = rowFieldWithGrouping.dateGrouping;
+            }
+          }
+          
+          // If still not found, check if this field is in columns with date grouping
+          if (!dateGroupingForFilter) {
+            const colFieldWithGrouping = config.columns.find(c => c.field === filter.field && c.dateGrouping && c.dateGrouping !== 'day');
+            if (colFieldWithGrouping) {
+              dateGroupingForFilter = colFieldWithGrouping.dateGrouping;
+            }
+          }
+          
           filteredData = filteredData.filter(item => {
             const fieldValue = getFieldValue(item, filter.field);
+            
+            // If this is a date field with grouping, apply grouping to the value for comparison
+            if (filterFieldType === 'date' && dateGroupingForFilter && fieldValue != null) {
+              const dateObj = parseDateFn ? parseDateFn(fieldValue) : (fieldValue instanceof Date ? fieldValue : new Date(fieldValue));
+              if (dateObj && !isNaN(dateObj.getTime())) {
+                const groupedValue = groupDate(dateObj, dateGroupingForFilter);
+                // Check if grouped value matches any filter value
+                return filter.values.some(filterVal => {
+                  // First, check if filter value matches the grouped value directly (already grouped)
+                  if (filterVal === groupedValue) {
+                    return true;
+                  }
+                  
+                  // Try to parse filter value as date and group it
+                  if (typeof filterVal === 'string') {
+                    // Try parsing filter value as date
+                    const filterDateObj = parseDateFn ? parseDateFn(filterVal) : new Date(filterVal);
+                    if (filterDateObj && !isNaN(filterDateObj.getTime())) {
+                      const groupedFilterVal = groupDate(filterDateObj, dateGroupingForFilter);
+                      return groupedFilterVal === groupedValue;
+                    }
+                    // If parsing fails, also check raw date string match
+                    return filterVal === String(fieldValue);
+                  }
+                  
+                  // For non-string values, compare directly
+                  return filterVal === fieldValue;
+                });
+              }
+            }
+            
+            // Default string comparison for non-date or non-grouped fields
             const stringValue = String(fieldValue ?? '').trim();
             return filter.values.includes(stringValue);
           });
@@ -1378,10 +1449,10 @@ const CustomReports = () => {
   // Open report modal
   const handleOpenReport = (report, pivotOverride = null) => {
     // If pivotOverride is provided (clicking on a pivot badge), use that pivot config
-    // Otherwise, always open in table view (not pivot mode) when clicking the report card
-    const effectivePivotConfig = pivotOverride?.config || null;
-    const effectiveIsPivotMode = pivotOverride ? true : false; // Only true if clicking a pivot badge
-    const effectiveShowFieldsPanel = pivotOverride ? true : false; // Only show panel if opening a pivot
+    // Otherwise, check if report has saved pivot mode and restore it
+    const effectivePivotConfig = pivotOverride?.config || (report.isPivotMode && report.pivotConfig ? report.pivotConfig : null);
+    const effectiveIsPivotMode = pivotOverride ? true : (report.isPivotMode && report.pivotConfig ? true : false);
+    const effectiveShowFieldsPanel = pivotOverride ? true : (report.isPivotMode && report.pivotConfig ? true : false);
 
     setSelectedReport({
       ...report,
@@ -1419,13 +1490,13 @@ const CustomReports = () => {
       }
     }
     
-    // Restore pivot table state only if opening a specific pivot view
+    // Restore pivot table state if opening a specific pivot view OR if report has saved pivot mode
     if (effectivePivotConfig && effectiveIsPivotMode) {
       setPivotConfig(effectivePivotConfig);
       setIsPivotMode(effectiveIsPivotMode);
       setShowPivotFieldsPanel(effectiveShowFieldsPanel);
     } else {
-      // Reset to defaults - always show table view when clicking report card
+      // Reset to defaults only if no pivot mode is saved
       setPivotConfig({ filters: [], rows: [], columns: [], values: [] });
       setIsPivotMode(false);
       setShowPivotFieldsPanel(false);
@@ -2613,27 +2684,56 @@ const CustomReports = () => {
                   </button>
                 )}
                 <button
-                  onClick={() => {
+                  onClick={async () => {
                     if (isPivotMode && pivotTableData) {
-                      // Export pivot table to Excel
-                      const wb = XLSX.utils.book_new();
+                      // Export pivot table to Excel with proper structure (merged cells, subtotals, etc.) using ExcelJS
+                      const workbook = new ExcelJS.Workbook();
+                      const worksheet = workbook.addWorksheet('Pivot Table');
                       
-                      // Helper to format values
+                      // Helper to format values (for Excel - numeric values)
                       const formatValue = (value, valueField) => {
-                        if (value == null || value === undefined) return '-';
+                        if (value == null || value === undefined) return null;
+                        
+                        // Apply scale factor if specified
+                        let scaledValue = value;
+                        if (typeof value === 'number' && valueField.scaleFactor && valueField.scaleFactor > 0) {
+                          scaledValue = value / valueField.scaleFactor;
+                        }
+                        
                         if (valueField.aggregation === 'count' || valueField.aggregation === 'distinctCount') {
-                          return Math.round(value);
+                          return Math.round(scaledValue);
                         }
                         if (typeof value === 'number') {
                           if (valueField.format === 'currency') {
-                            return value;
+                            return scaledValue;
                           }
                           if (valueField.format === 'percentage') {
-                            return value / 100;
+                            return scaledValue / 100;
                           }
-                          return value;
+                          return scaledValue;
                         }
                         return value;
+                      };
+                      
+                      // Helper to get cell value for ExcelJS
+                      const getCellValue = (val) => {
+                        if (val === null || val === undefined) return '';
+                        return val;
+                      };
+                      
+                      // Helper to check if a value is numeric
+                      const isNumeric = (val) => {
+                        if (val === null || val === undefined || val === '') return false;
+                        if (typeof val === 'number') return true;
+                        if (typeof val === 'string') {
+                          // Check if string represents a number (including negative, decimal, etc.)
+                          const trimmed = val.trim();
+                          if (trimmed === '' || trimmed === '-') return false;
+                          // Allow numbers with currency symbols, commas, etc. - strip them and check
+                          const numStr = trimmed.replace(/[₹$€£,\s]/g, '');
+                          return !isNaN(numStr) && !isNaN(parseFloat(numStr));
+                        }
+                        return false;
                       };
                       
                       const splitKey = (key) => {
@@ -2642,47 +2742,23 @@ const CustomReports = () => {
                           const parsed = JSON.parse(key);
                           return Array.isArray(parsed) ? parsed : [String(parsed)];
                         } catch (e) {
-                          // Fallback for any legacy/plain keys
                           return String(key).split('|');
                         }
                       };
                       
-                      // Build pivot table data array
-                      const pivotRows = [];
-                      
-                      // Add headers
-                      const headerRow = [];
-                      
-                      // Helper to get display label for row field
+                      // Helper to get display labels
                       const getRowFieldDisplayLabel = (rowField) => {
-                        if (rowField.customLabel) {
-                          return rowField.customLabel;
-                        }
-                        return rowField.label;
+                        return rowField.customLabel || rowField.label;
                       };
                       
-                      // Row field headers
-                      pivotConfig.rows.forEach(rowField => {
-                        headerRow.push(getRowFieldDisplayLabel(rowField));
-                      });
-                      
-                      // Helper to get display label for value field
                       const getValueFieldDisplayLabel = (valueField) => {
-                        if (valueField.customLabel) {
-                          return valueField.customLabel;
-                        }
-                        return valueField.aggregation ? `${valueField.aggregation} of ${valueField.label}` : valueField.label;
+                        return valueField.customLabel || (valueField.aggregation ? `${valueField.aggregation} of ${valueField.label}` : valueField.label);
                       };
                       
-                      // Helper to get display label for column field
                       const getColumnFieldDisplayLabel = (columnField) => {
-                        if (columnField.customLabel) {
-                          return columnField.customLabel;
-                        }
-                        return columnField.label;
+                        return columnField.customLabel || columnField.label;
                       };
                       
-                      // Helper to get display label for column item
                       const getColumnItemDisplayLabel = (colKey) => {
                         const columnItemLabels = pivotConfig.columnItemLabels || {};
                         if (columnItemLabels[colKey]) {
@@ -2692,73 +2768,280 @@ const CustomReports = () => {
                         return colValues.join(' / ');
                       };
                       
-                      // Column headers
-                      if (pivotConfig.columns.length > 0) {
-                        pivotTableData.colKeys.forEach(colKey => {
-                          const itemLabel = getColumnItemDisplayLabel(colKey);
-                          pivotConfig.values.forEach(valueField => {
-                            const displayLabel = getValueFieldDisplayLabel(valueField);
-                            headerRow.push(`${itemLabel} - ${displayLabel}`);
-                          });
-                        });
-                      } else {
-                        // No columns, just value headers
-                        pivotConfig.values.forEach(valueField => {
-                          headerRow.push(getValueFieldDisplayLabel(valueField));
-                        });
-                      }
+                      // Build pivot table data array with proper structure
+                      const pivotRows = [];
+                      const merges = []; // Array to store merged cell ranges
+                      let currentRow = 0;
                       
-                      // Total column header
-                      if (pivotConfig.values.length > 1 || Array.from(pivotTableData.colKeys).length > 1) {
-                        pivotConfig.values.forEach(valueField => {
-                          const displayLabel = getValueFieldDisplayLabel(valueField);
-                          headerRow.push(`Total - ${displayLabel}`);
-                        });
-                      }
+                      // Calculate column counts
+                      const numRowFields = pivotConfig.rows.length;
+                      const numColFields = pivotConfig.columns.length;
+                      const numValueFields = pivotConfig.values.length;
+                      const colKeys = Array.from(pivotTableData.colKeys);
+                      const numColGroups = colKeys.length;
+                      const hasTotalColumn = numValueFields > 1 || numColGroups > 1;
                       
-                      pivotRows.push(headerRow);
-                      
-                      // Add data rows
-                      pivotTableData.rowKeys.forEach(rowKey => {
-                        const rowValues = splitKey(rowKey);
-                        const dataRow = [];
+                      // HEADER ROWS
+                      if (numColFields > 0) {
+                        // Row 0: Top header row with row field headers and column field headers
+                        const headerRow0 = [];
                         
-                        // Row labels
-                        rowValues.forEach(val => {
-                          dataRow.push(val);
-                        });
-                        
-                        // Data cells
-                        pivotTableData.colKeys.forEach(colKey => {
-                          pivotConfig.values.forEach(valueField => {
-                            const val = pivotTableData.data[rowKey]?.[colKey]?.[valueField.field];
-                            dataRow.push(formatValue(val, valueField));
+                        // Row field headers (will span 3 rows)
+                        pivotConfig.rows.forEach((rowField, idx) => {
+                          headerRow0.push(getRowFieldDisplayLabel(rowField));
+                          // Merge row field header vertically (3 rows)
+                          merges.push({
+                            s: { r: currentRow, c: idx },
+                            e: { r: currentRow + 2, c: idx }
                           });
                         });
                         
-                        // Row totals
-                        if (pivotConfig.values.length > 1 || Array.from(pivotTableData.colKeys).length > 1) {
-                          pivotConfig.values.forEach(valueField => {
-                            const val = pivotTableData.totals[rowKey]?.[valueField.field];
-                            dataRow.push(formatValue(val, valueField));
+                        // Column field header (spans all column groups)
+                        const colFieldLabel = pivotConfig.columns.map(c => getColumnFieldDisplayLabel(c)).join(' / ');
+                        headerRow0.push(colFieldLabel);
+                        merges.push({
+                          s: { r: currentRow, c: numRowFields },
+                          e: { r: currentRow, c: numRowFields + (numColGroups * numValueFields) - 1 }
+                        });
+                        
+                        // Total column header (spans 3 rows and all value fields)
+                        if (hasTotalColumn) {
+                          headerRow0.push('Total');
+                          merges.push({
+                            s: { r: currentRow, c: numRowFields + (numColGroups * numValueFields) },
+                            e: { r: currentRow + 2, c: numRowFields + (numColGroups * numValueFields) + numValueFields - 1 }
                           });
                         }
                         
-                        pivotRows.push(dataRow);
+                        pivotRows.push(headerRow0);
+                        currentRow++;
+                        
+                        // Row 1: Column item headers (merged across value fields)
+                        const headerRow1 = [];
+                        
+                        // Empty cells for row fields (already merged in row 0) - use null so cells are created
+                        for (let i = 0; i < numRowFields; i++) {
+                          headerRow1.push(null);
+                        }
+                        
+                        // Column item headers
+                        colKeys.forEach((colKey, colIdx) => {
+                          const itemLabel = getColumnItemDisplayLabel(colKey);
+                          headerRow1.push(itemLabel);
+                          // Merge column item header across value fields
+                          merges.push({
+                            s: { r: currentRow, c: numRowFields + (colIdx * numValueFields) },
+                            e: { r: currentRow, c: numRowFields + (colIdx * numValueFields) + numValueFields - 1 }
+                          });
+                          // Fill remaining cells for this column group - use null so cells are created
+                          for (let v = 1; v < numValueFields; v++) {
+                            headerRow1.push(null);
+                          }
+                        });
+                        
+                        // Empty cells for total column (already merged in row 0) - use null so cells are created
+                        if (hasTotalColumn) {
+                          for (let v = 0; v < numValueFields; v++) {
+                            headerRow1.push(null);
+                          }
+                        }
+                        
+                        pivotRows.push(headerRow1);
+                        currentRow++;
+                        
+                        // Row 2: Value field headers
+                        const headerRow2 = [];
+                        
+                        // Empty cells for row fields (already merged in row 0) - use null so cells are created
+                        for (let i = 0; i < numRowFields; i++) {
+                          headerRow2.push(null);
+                        }
+                        
+                        // Value field headers (repeated for each column group)
+                        colKeys.forEach(() => {
+                          pivotConfig.values.forEach(valueField => {
+                            headerRow2.push(getValueFieldDisplayLabel(valueField));
+                          });
+                        });
+                        
+                        // Value field headers for total column
+                        if (hasTotalColumn) {
+                          pivotConfig.values.forEach(valueField => {
+                            headerRow2.push(getValueFieldDisplayLabel(valueField));
+                          });
+                        }
+                        
+                        pivotRows.push(headerRow2);
+                        currentRow++;
+                      } else {
+                        // No column fields - simpler header structure
+                        const headerRow = [];
+                        
+                        // Row field headers
+                        pivotConfig.rows.forEach(rowField => {
+                          headerRow.push(getRowFieldDisplayLabel(rowField));
+                        });
+                        
+                        // Value field headers
+                        pivotConfig.values.forEach(valueField => {
+                          headerRow.push(getValueFieldDisplayLabel(valueField));
+                        });
+                        
+                        pivotRows.push(headerRow);
+                        currentRow++;
+                      }
+                      
+                      // DATA ROWS with SUBTOTALS
+                      // Group rows by first row field (for hierarchical display with subtotals)
+                      const groupedRows = new Map();
+                      pivotTableData.rowKeys.forEach(rowKey => {
+                        const rowValues = splitKey(rowKey);
+                        const firstLevelKey = rowValues[0] || 'Total';
+                        
+                        if (!groupedRows.has(firstLevelKey)) {
+                          groupedRows.set(firstLevelKey, []);
+                        }
+                        groupedRows.get(firstLevelKey).push({ rowKey, rowValues });
                       });
                       
-                      // Add grand total row
+                      // Track rowspan for first row field when there are multiple row fields
+                      const firstRowFieldRowspans = new Map();
+                      // Track which rows are subtotal rows for styling
+                      const subtotalRowIndices = new Set();
+                      
+                      groupedRows.forEach((subRows, firstLevelKey) => {
+                        const groupRowCount = subRows.length + (numRowFields > 1 && subRows.length > 1 ? 1 : 0);
+                        
+                        // Add detail rows
+                        subRows.forEach(({ rowKey, rowValues }, idx) => {
+                          const dataRow = [];
+                          
+                          // Row labels - handle rowspan for first field when multiple row fields
+                          if (numRowFields > 1) {
+                            // First row field - will be merged with rowspan
+                            if (idx === 0) {
+                              dataRow.push(firstLevelKey);
+                              firstRowFieldRowspans.set(currentRow, groupRowCount);
+                            } else {
+                              dataRow.push(null); // Empty for merged cell - use null so cell is created
+                            }
+                            
+                            // Remaining row fields
+                            for (let i = 1; i < rowValues.length; i++) {
+                              dataRow.push(rowValues[i] || '');
+                            }
+                            
+                            // Fill empty cells if row has fewer values than row fields - use null so cells are created
+                            while (dataRow.length < numRowFields) {
+                              dataRow.push(null);
+                            }
+                          } else {
+                            // Single row field - no rowspan needed
+                            rowValues.forEach(val => {
+                              dataRow.push(val);
+                            });
+                            while (dataRow.length < numRowFields) {
+                              dataRow.push(null);
+                            }
+                          }
+                          
+                          // Data cells
+                          colKeys.forEach(colKey => {
+                            pivotConfig.values.forEach(valueField => {
+                              const val = pivotTableData.data[rowKey]?.[colKey]?.[valueField.field];
+                              dataRow.push(formatValue(val, valueField));
+                            });
+                          });
+                          
+                          // Row totals
+                          if (hasTotalColumn) {
+                            pivotConfig.values.forEach(valueField => {
+                              const val = pivotTableData.totals[rowKey]?.[valueField.field];
+                              dataRow.push(formatValue(val, valueField));
+                            });
+                          }
+                          
+                          pivotRows.push(dataRow);
+                          currentRow++;
+                        });
+                        
+                        // Add subtotal row after detail rows (if multiple row fields and multiple items)
+                        if (numRowFields > 1 && subRows.length > 1) {
+                          const matchingRowKeys = subRows.map(sr => sr.rowKey);
+                          
+                          // Calculate subtotals
+                          const subtotals = {};
+                          pivotConfig.values.forEach(valueField => {
+                            let total = 0;
+                            matchingRowKeys.forEach(rk => {
+                              const rowTotal = pivotTableData.totals[rk]?.[valueField.field];
+                              if (rowTotal != null) {
+                                total += (typeof rowTotal === 'number' ? rowTotal : parseFloat(rowTotal) || 0);
+                              }
+                            });
+                            subtotals[valueField.field] = total;
+                          });
+                          
+                          const subtotalRow = [];
+                          
+                          // First row field - empty (already merged with detail rows above) - use null so cell is created
+                          subtotalRow.push(null);
+                          
+                          // Empty cells for all remaining row fields (subtotal doesn't have labels) - use null so cells are created
+                          for (let i = 1; i < numRowFields; i++) {
+                            subtotalRow.push(null);
+                          }
+                          
+                          // Data cells - calculate subtotals for each column
+                          colKeys.forEach(colKey => {
+                            pivotConfig.values.forEach(valueField => {
+                              let colTotal = 0;
+                              matchingRowKeys.forEach(rk => {
+                                const val = pivotTableData.data[rk]?.[colKey]?.[valueField.field];
+                                if (val != null) {
+                                  colTotal += (typeof val === 'number' ? val : parseFloat(val) || 0);
+                                }
+                              });
+                              subtotalRow.push(formatValue(colTotal, valueField));
+                            });
+                          });
+                          
+                          // Subtotal totals
+                          if (hasTotalColumn) {
+                            pivotConfig.values.forEach(valueField => {
+                              subtotalRow.push(formatValue(subtotals[valueField.field], valueField));
+                            });
+                          }
+                          
+                          pivotRows.push(subtotalRow);
+                          // Track this row as a subtotal row for styling
+                          subtotalRowIndices.add(currentRow);
+                          currentRow++;
+                        }
+                      });
+                      
+                      // Apply rowspan merges for first row field
+                      firstRowFieldRowspans.forEach((rowspan, startRow) => {
+                        if (rowspan > 1) {
+                          merges.push({
+                            s: { r: startRow, c: 0 },
+                            e: { r: startRow + rowspan - 1, c: 0 }
+                          });
+                        }
+                      });
+                      
+                      // GRAND TOTAL ROW
                       if (pivotTableData.rowKeys.length > 0) {
                         const grandTotalRow = [];
                         grandTotalRow.push('Grand Total');
                         
-                        // Empty cells for additional row fields
-                        for (let i = 1; i < pivotConfig.rows.length; i++) {
-                          grandTotalRow.push('');
+                        // Empty cells for additional row fields - use null so cells are created
+                        for (let i = 1; i < numRowFields; i++) {
+                          grandTotalRow.push(null);
                         }
                         
                         // Column totals
-                        pivotTableData.colKeys.forEach(colKey => {
+                        colKeys.forEach(colKey => {
                           pivotConfig.values.forEach(valueField => {
                             const val = pivotTableData.colTotals[colKey]?.[valueField.field];
                             grandTotalRow.push(formatValue(val, valueField));
@@ -2766,7 +3049,7 @@ const CustomReports = () => {
                         });
                         
                         // Grand total
-                        if (pivotConfig.values.length > 1 || Array.from(pivotTableData.colKeys).length > 1) {
+                        if (hasTotalColumn) {
                           pivotConfig.values.forEach(valueField => {
                             const val = pivotTableData.grandTotal[valueField.field];
                             grandTotalRow.push(formatValue(val, valueField));
@@ -2776,21 +3059,123 @@ const CustomReports = () => {
                         pivotRows.push(grandTotalRow);
                       }
                       
-                      // Create worksheet
-                      const ws = XLSX.utils.aoa_to_sheet(pivotRows);
+                      // Ensure all rows have the same length
+                      const maxCols = Math.max(...pivotRows.map(row => row.length));
+                      pivotRows.forEach(row => {
+                        while (row.length < maxCols) {
+                          row.push(null);
+                        }
+                      });
+                      
+                      // Add rows to worksheet using ExcelJS
+                      pivotRows.forEach((row, rowIndex) => {
+                        const excelRow = worksheet.addRow(row.map(cell => getCellValue(cell)));
+                      });
+                      
+                      // Apply all merged cells after rows are added
+                      merges.forEach(merge => {
+                        worksheet.mergeCells(
+                          merge.s.r + 1, merge.s.c + 1, // ExcelJS uses 1-based indexing
+                          merge.e.r + 1, merge.e.c + 1
+                        );
+                      });
+                      
+                      // Apply styling to rows
+                      pivotRows.forEach((row, rowIndex) => {
+                        const excelRow = worksheet.getRow(rowIndex + 1);
+                        
+                        // Style header rows
+                        const headerRowCount = numColFields > 0 ? 3 : 1;
+                        if (rowIndex < headerRowCount) {
+                          excelRow.eachCell((cell, colNumber) => {
+                            cell.fill = {
+                              type: 'pattern',
+                              pattern: 'solid',
+                              fgColor: { argb: 'FFF3F4F6' } // Light gray
+                            };
+                            cell.font = { bold: true };
+                            cell.alignment = { horizontal: 'center', vertical: 'middle' };
+                          });
+                        }
+                        
+                        // Style subtotal rows
+                        if (subtotalRowIndices.has(rowIndex)) {
+                          excelRow.eachCell((cell, colNumber) => {
+                            cell.fill = {
+                              type: 'pattern',
+                              pattern: 'solid',
+                              fgColor: { argb: 'FFFEF3C7' } // Light yellow/amber
+                            };
+                            cell.font = { bold: true };
+                            if (colNumber <= numRowFields) {
+                              // Row fields - center align
+                              cell.alignment = { horizontal: 'center', vertical: 'middle' };
+                            } else {
+                              // Value columns - right-align numeric, center-align non-numeric
+                              const cellValue = cell.value;
+                              if (isNumeric(cellValue)) {
+                                cell.alignment = { horizontal: 'right', vertical: 'middle' };
+                              } else {
+                                cell.alignment = { horizontal: 'center', vertical: 'middle' };
+                              }
+                            }
+                          });
+                        }
+                        
+                        // Style grand total row
+                        const grandTotalRowIndex = pivotRows.length - 1;
+                        if (rowIndex === grandTotalRowIndex && pivotRows[rowIndex] && pivotRows[rowIndex][0] === 'Grand Total') {
+                          excelRow.eachCell((cell, colNumber) => {
+                            cell.fill = {
+                              type: 'pattern',
+                              pattern: 'solid',
+                              fgColor: { argb: 'FFE5E7EB' } // Light gray
+                            };
+                            cell.font = { bold: true };
+                            cell.alignment = { 
+                              horizontal: colNumber <= numRowFields ? 'left' : 'right', 
+                              vertical: 'middle' 
+                            };
+                          });
+                        }
+                        
+                        // Style regular data rows - center align non-numeric fields
+                        if (rowIndex >= headerRowCount && !subtotalRowIndices.has(rowIndex) && 
+                            !(rowIndex === grandTotalRowIndex && pivotRows[rowIndex] && pivotRows[rowIndex][0] === 'Grand Total')) {
+                          excelRow.eachCell((cell, colNumber) => {
+                            const cellValue = cell.value;
+                            // Row fields (text labels) should be center-aligned
+                            if (colNumber <= numRowFields) {
+                              cell.alignment = { horizontal: 'center', vertical: 'middle' };
+                            } else {
+                              // Value columns - right-align numeric, center-align non-numeric
+                              if (isNumeric(cellValue)) {
+                                cell.alignment = { horizontal: 'right', vertical: 'middle' };
+                              } else {
+                                cell.alignment = { horizontal: 'center', vertical: 'middle' };
+                              }
+                            }
+                          });
+                        }
+                      });
                       
                       // Set column widths
-                      const colWidths = pivotRows[0].map((_, i) => {
+                      for (let i = 0; i < maxCols; i++) {
                         const maxLength = Math.max(...pivotRows.map(row => String(row[i] || '').length));
-                        return { wch: Math.min(Math.max(maxLength + 2, 10), 50) };
-                      });
-                      ws['!cols'] = colWidths;
+                        worksheet.getColumn(i + 1).width = Math.min(Math.max(maxLength + 2, 10), 50);
+                      }
                       
-                      // Add worksheet to workbook
-                      XLSX.utils.book_append_sheet(wb, ws, 'Pivot Table');
-                      
-                      // Write file
-                      XLSX.writeFile(wb, `${selectedReport.title.replace(/[^a-z0-9]/gi, '_')}_pivot_${new Date().toISOString().split('T')[0]}.xlsx`);
+                      // Write file using ExcelJS
+                      const buffer = await workbook.xlsx.writeBuffer();
+                      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+                      const url = window.URL.createObjectURL(blob);
+                      const link = document.createElement('a');
+                      link.href = url;
+                      link.download = `${selectedReport.title.replace(/[^a-z0-9]/gi, '_')}_pivot_${new Date().toISOString().split('T')[0]}.xlsx`;
+                      document.body.appendChild(link);
+                      link.click();
+                      document.body.removeChild(link);
+                      window.URL.revokeObjectURL(url);
                     } else {
                       // Export regular table to Excel
                       const wb = XLSX.utils.book_new();
@@ -2942,6 +3327,9 @@ const CustomReports = () => {
                   onClose={() => setFieldConfigModal(null)}
                   getFieldValue={getFieldValue}
                   salesData={salesData}
+                  getFieldType={getFieldType}
+                  parseDate={parseDate}
+                  groupDate={groupDate}
                 />
               )}
 
@@ -3214,14 +3602,15 @@ const CustomReports = () => {
                                   filters: selectedReport.filters || [],
                                   relationships: selectedReport.relationships || [],
                                   sortIndexes: selectedReport.sortIndexes || {},
-                                  pivotConfig: selectedReport.pivotConfig || null,
-                                  isPivotMode: true
+                                  pivotConfig: pivotConfig, // Use current pivotConfig state, not selectedReport.pivotConfig
+                                  isPivotMode: true,
+                                  savedPivots: selectedReport.savedPivots || []
                                 }
                               };
                               await apiPut(API_CONFIG.ENDPOINTS.CUSTOM_CARD_UPDATE(selectedReport.id), updatePayload);
-                              setSelectedReport(prev => prev ? { ...prev, isPivotMode: true } : null);
+                              setSelectedReport(prev => prev ? { ...prev, pivotConfig: pivotConfig, isPivotMode: true } : null);
                               setReports(prev => prev.map(r => 
-                                r.id === selectedReport.id ? { ...r, isPivotMode: true } : r
+                                r.id === selectedReport.id ? { ...r, pivotConfig: pivotConfig, isPivotMode: true } : r
                               ));
                             }
                           } catch (error) {
@@ -3583,6 +3972,9 @@ const CustomReports = () => {
           onClose={() => setFieldConfigModal(null)}
           getFieldValue={getFieldValue}
           salesData={salesData}
+          getFieldType={getFieldType}
+          parseDate={parseDate}
+          groupDate={groupDate}
         />
       )}
 
@@ -6395,6 +6787,32 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLa
   // State for editing column headers
   const [editingHeader, setEditingHeader] = useState(null); // { type: 'value'|'columnField'|'columnItem'|'rowField', index: 0, colKey?: string }
   const [editValue, setEditValue] = useState('');
+  
+  // Refs to measure header row heights for sticky positioning
+  const headerRow1Ref = useRef(null);
+  const headerRow2Ref = useRef(null);
+  const [headerHeights, setHeaderHeights] = useState({ row1: 40, row2: 40, row3: 40 });
+  
+  // Measure header row heights after render
+  useEffect(() => {
+    const measureHeights = () => {
+      if (headerRow1Ref.current && headerRow2Ref.current) {
+        const row1Height = headerRow1Ref.current.offsetHeight || 40;
+        const row2Height = headerRow2Ref.current.offsetHeight || 40;
+        setHeaderHeights({
+          row1: row1Height,
+          row2: row2Height,
+          row3: 40 // Default for third row
+        });
+      }
+    };
+    
+    // Measure after a short delay to ensure DOM is ready
+    const timeoutId = setTimeout(measureHeights, 100);
+    measureHeights(); // Also measure immediately
+    
+    return () => clearTimeout(timeoutId);
+  }, [pivotConfig, pivotData]);
 
   // Initialize column item labels map if not exists
   const columnItemLabels = pivotConfig.columnItemLabels || {};
@@ -6909,6 +7327,8 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLa
       
       <div style={{
         overflowX: 'auto',
+        overflowY: 'auto',
+        maxHeight: 'calc(100vh - 300px)', // Allow vertical scrolling
         border: '1px solid #d1d5db',
         background: 'white',
         borderTop: totalColumns > COLUMNS_PER_PAGE ? 'none' : '1px solid #d1d5db'
@@ -6922,10 +7342,21 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLa
           {/* Column Headers */}
           {pivotConfig.columns.length > 0 && (
             <>
-              <tr style={{ background: '#f3f4f6' }}>
+              <tr 
+                ref={headerRow1Ref}
+                style={{ 
+                  background: '#f3f4f6',
+                  position: 'sticky',
+                  top: 0,
+                  zIndex: 22
+                }}>
                 {/* Row field headers - rowspan for 3 rows (column label, item names, value names) */}
                 {pivotConfig.rows.map((rowField, idx) => {
                   const rowWidth = getColumnWidth('row', null, null, idx);
+                  // Calculate left offset for sticky positioning (sum of widths of previous row fields)
+                  const leftOffset = pivotConfig.rows.slice(0, idx).reduce((sum, _, prevIdx) => {
+                    return sum + getColumnWidth('row', null, null, prevIdx);
+                  }, 0);
                   return (
                     <th
                       key={`row-header-${idx}`}
@@ -6937,7 +7368,9 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLa
                         fontWeight: '600',
                         textAlign: 'left',
                         verticalAlign: 'top',
-                        position: 'relative',
+                        position: 'sticky',
+                        left: `${leftOffset}px`,
+                        zIndex: 25 + idx, // Higher z-index for each subsequent sticky column (above headers)
                         width: `${rowWidth}px`,
                         minWidth: `${rowWidth}px`,
                         maxWidth: `${rowWidth}px`
@@ -7157,7 +7590,14 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLa
                   </th>
                 )}
               </tr>
-              <tr style={{ background: '#f3f4f6' }}>
+              <tr 
+                ref={headerRow2Ref}
+                style={{ 
+                  background: '#f3f4f6', 
+                  position: 'sticky', 
+                  top: `${headerHeights.row1}px`, // Height of first header row
+                  zIndex: 21 
+                }}>
                 {/* Second header row - Item names (merged across value fields) */}
                 {visibleColKeys.map(colKey => {
                   // Get width for column item
@@ -7285,11 +7725,18 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLa
                   );
                 })}
               </tr>
-              <tr style={{ background: '#f3f4f6' }}>
+              <tr style={{ 
+                background: '#f3f4f6', 
+                position: 'sticky', 
+                top: `${headerHeights.row1 + headerHeights.row2}px`, // Height of first + second header rows
+                zIndex: 20 
+              }}>
                 {/* Third header row - Value field names (Amount, Quantity, etc.) */}
-                {visibleColKeys.map(colKey => {
+                {visibleColKeys.map((colKey, colKeyIdx) => {
                   return pivotConfig.values.map((valueField, vIdx) => {
                     const columnWidth = getColumnWidth('value', colKey, vIdx, null);
+                    // Only auto-focus the first column's instance of the value field being edited
+                    const shouldAutoFocus = colKeyIdx === 0 && editingHeader && editingHeader.type === 'value' && editingHeader.index === vIdx;
                     return (
                       <th
                         key={`value-${colKey}-${vIdx}`}
@@ -7305,14 +7752,14 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLa
                           maxWidth: `${columnWidth}px`
                         }}
                       >
-                      {editingHeader && editingHeader.type === 'value' && editingHeader.index === vIdx && !editingHeader.colKey ? (
+                      {editingHeader && editingHeader.type === 'value' && editingHeader.index === vIdx ? (
                         <input
                           type="text"
                           value={editValue}
                           onChange={(e) => setEditValue(e.target.value)}
                           onBlur={handleSaveEdit}
                           onKeyDown={handleEditKeyPress}
-                          autoFocus
+                          autoFocus={shouldAutoFocus}
                           style={{
                             width: '100%',
                             padding: '4px 6px',
@@ -7406,9 +7853,18 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLa
           )}
           {/* No column fields - just value headers */}
           {pivotConfig.columns.length === 0 && (
-            <tr style={{ background: '#f3f4f6' }}>
+            <tr style={{ 
+              background: '#f3f4f6',
+              position: 'sticky',
+              top: 0,
+              zIndex: 22
+            }}>
               {pivotConfig.rows.map((rowField, idx) => {
                 const rowWidth = getColumnWidth('row', null, null, idx);
+                // Calculate left offset for sticky positioning
+                const leftOffset = pivotConfig.rows.slice(0, idx).reduce((sum, _, prevIdx) => {
+                  return sum + getColumnWidth('row', null, null, prevIdx);
+                }, 0);
                 return (
                   <th
                     key={`row-header-${idx}`}
@@ -7418,7 +7874,9 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLa
                       background: '#f3f4f6',
                       fontWeight: '600',
                       textAlign: 'left',
-                      position: 'relative',
+                      position: 'sticky',
+                      left: `${leftOffset}px`,
+                      zIndex: 25 + idx, // Higher z-index for header row fields (above other headers)
                       width: `${rowWidth}px`,
                       minWidth: `${rowWidth}px`,
                       maxWidth: `${rowWidth}px`
@@ -7538,7 +7996,7 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLa
                       onChange={(e) => setEditValue(e.target.value)}
                       onBlur={handleSaveEdit}
                       onKeyDown={handleEditKeyPress}
-                      autoFocus
+                      autoFocus={vIdx === 0}
                       style={{
                         width: '100%',
                         padding: '4px 6px',
@@ -7730,16 +8188,25 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLa
                   >
                     {/* First level label - subtotal row doesn't need rowspan as parent is already shown in first detail row */}
                     {/* Empty cells for nested levels */}
-                    {pivotConfig.rows.slice(1).map((_, idx) => (
-                      <td
-                        key={`empty-${idx}`}
-                        style={{
-                          padding: '6px 8px',
-                          border: '1px solid #d1d5db',
-                          background: '#fef3c7'
-                        }}
-                      />
-                    ))}
+                    {pivotConfig.rows.slice(1).map((_, idx) => {
+                      // Calculate left offset for sticky positioning
+                      const leftOffset = pivotConfig.rows.slice(0, idx + 1).reduce((sum, _, prevIdx) => {
+                        return sum + getColumnWidth('row', null, null, prevIdx);
+                      }, 0);
+                      return (
+                        <td
+                          key={`empty-${idx}`}
+                          style={{
+                            padding: '6px 8px',
+                            border: '1px solid #d1d5db',
+                            background: '#fef3c7',
+                            position: 'sticky',
+                            left: `${leftOffset}px`,
+                            zIndex: 11 + idx + 1
+                          }}
+                        />
+                      );
+                    })}
                     {/* Data cells - show subtotals */}
                     {visibleColKeys.map(colKey => {
                       return pivotConfig.values.map((valueField, vIdx) => (
@@ -7815,6 +8282,9 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLa
                               fontWeight: '600',
                               background: '#fafafa',
                               verticalAlign: 'top',
+                              position: 'sticky',
+                              left: '0px',
+                              zIndex: 11,
                               width: `${getColumnWidth('row', null, null, 0)}px`,
                               minWidth: `${getColumnWidth('row', null, null, 0)}px`,
                               maxWidth: `${getColumnWidth('row', null, null, 0)}px`
@@ -7826,6 +8296,10 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLa
                         {/* Child row labels */}
                         {rowValues.slice(1).map((val, idx) => {
                           const rowWidth = getColumnWidth('row', null, null, idx + 1);
+                          // Calculate left offset for sticky positioning
+                          const leftOffset = pivotConfig.rows.slice(0, idx + 1).reduce((sum, _, prevIdx) => {
+                            return sum + getColumnWidth('row', null, null, prevIdx);
+                          }, 0);
                           return (
                             <td
                               key={`row-label-${idx + 1}`}
@@ -7835,6 +8309,9 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLa
                                 fontWeight: '400',
                                 background: 'white',
                                 paddingLeft: `${20 + idx * 20}px`,
+                                position: 'sticky',
+                                left: `${leftOffset}px`,
+                                zIndex: 11 + idx + 1,
                                 width: `${rowWidth}px`,
                                 minWidth: `${rowWidth}px`,
                                 maxWidth: `${rowWidth}px`
@@ -7854,6 +8331,9 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLa
                           border: '1px solid #d1d5db',
                           fontWeight: '600',
                           background: '#fafafa',
+                          position: 'sticky',
+                          left: '0px',
+                          zIndex: 11,
                           width: `${getColumnWidth('row', null, null, 0)}px`,
                           minWidth: `${getColumnWidth('row', null, null, 0)}px`,
                           maxWidth: `${getColumnWidth('row', null, null, 0)}px`
@@ -8424,7 +8904,7 @@ const PivotFieldsPanel = (props) => {
 };
 
 // Field Configuration Modal Component
-const FieldConfigurationModal = ({ fieldConfig, pivotConfig, setPivotConfig, onClose, getFieldValue, salesData }) => {
+const FieldConfigurationModal = ({ fieldConfig, pivotConfig, setPivotConfig, onClose, getFieldValue, salesData, getFieldType, parseDate, groupDate }) => {
   const [aggregation, setAggregation] = useState(fieldConfig?.field?.aggregation || 'sum');
   const [format, setFormat] = useState(fieldConfig?.field?.format || 'number');
   const [showSubtotals, setShowSubtotals] = useState(fieldConfig?.field?.showSubtotals !== false);
@@ -8439,15 +8919,146 @@ const FieldConfigurationModal = ({ fieldConfig, pivotConfig, setPivotConfig, onC
     if (fieldConfig?.area !== 'filters' || !fieldConfig?.field || !salesData || salesData.length === 0) {
       return [];
     }
+    
+    const fieldName = fieldConfig.field.field;
+    const fieldType = getFieldType ? getFieldType(fieldName) : 'text';
+    // Use the dateGrouping state (which can be changed in the UI) for filter fields
+    const dateGroupingForField = fieldConfig.area === 'filters' ? dateGrouping : (fieldConfig.field.dateGrouping || 'day');
+    
+    // Check if this is a date field (with or without grouping)
+    const isDateField = fieldType === 'date';
+    // Check if this is a date field with grouping configured (non-day grouping)
+    const isDateFieldWithGrouping = isDateField && dateGroupingForField && dateGroupingForField !== 'day';
+    
     const valuesSet = new Set();
     salesData.forEach(item => {
-      const val = getFieldValue(item, fieldConfig.field.field);
+      const val = getFieldValue(item, fieldName);
       if (val != null && val !== '') {
-        valuesSet.add(String(val).trim());
+        if (isDateFieldWithGrouping && parseDate && groupDate) {
+          // Apply date grouping for date fields
+          const dateObj = parseDate(val);
+          if (dateObj && !isNaN(dateObj.getTime())) {
+            const groupedValue = groupDate(dateObj, dateGroupingForField);
+            valuesSet.add(groupedValue);
+          } else {
+            // If parsing fails, add raw value
+            valuesSet.add(String(val).trim());
+          }
+        } else {
+          // For non-date fields or date fields without grouping, use raw value
+          valuesSet.add(String(val).trim());
+        }
       }
     });
-    return Array.from(valuesSet).sort();
-  }, [fieldConfig, salesData, getFieldValue]);
+    
+    // Custom sort function for date-grouped values
+    const sortDateGroupedValues = (a, b) => {
+      // Handle blank values - put them at the end
+      if (a === '(blank)' && b === '(blank)') return 0;
+      if (a === '(blank)') return 1;
+      if (b === '(blank)') return -1;
+      
+      // Check if values are in DD-MMM-YY format (common for raw date values)
+      const ddmmyyMatchA = a.match(/^(\d{1,2})-([A-Za-z]{3})-(\d{2,4})$/);
+      const ddmmyyMatchB = b.match(/^(\d{1,2})-([A-Za-z]{3})-(\d{2,4})$/);
+      
+      // If both are in DD-MMM-YY format, sort chronologically
+      if (ddmmyyMatchA && ddmmyyMatchB) {
+        const monthMap = {
+          'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'may': 5, 'jun': 6,
+          'jul': 7, 'aug': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12
+        };
+        const [, dayA, monthA, yearA] = ddmmyyMatchA;
+        const [, dayB, monthB, yearB] = ddmmyyMatchB;
+        
+        // Convert YY to YYYY if needed
+        const fullYearA = yearA.length === 2 ? 2000 + parseInt(yearA) : parseInt(yearA);
+        const fullYearB = yearB.length === 2 ? 2000 + parseInt(yearB) : parseInt(yearB);
+        
+        if (fullYearA !== fullYearB) return fullYearA - fullYearB;
+        
+        const monthNumA = monthMap[monthA.toLowerCase()] || 0;
+        const monthNumB = monthMap[monthB.toLowerCase()] || 0;
+        if (monthNumA !== monthNumB) return monthNumA - monthNumB;
+        
+        return parseInt(dayA) - parseInt(dayB);
+      }
+      
+      // If not a date field, use alphabetical sort
+      if (!isDateField) {
+        return a.localeCompare(b);
+      }
+      
+      // Parse and compare based on grouping type
+      try {
+        if (dateGroupingForField === 'day' || !dateGroupingForField) {
+          // YYYY-MM-DD format (already sortable)
+          return a.localeCompare(b);
+        } else if (dateGroupingForField === 'week') {
+          // Format: "Week N - YYYY"
+          const matchA = a.match(/Week (\d+) - (\d+)/);
+          const matchB = b.match(/Week (\d+) - (\d+)/);
+          if (matchA && matchB) {
+            const yearA = parseInt(matchA[2]);
+            const yearB = parseInt(matchB[2]);
+            if (yearA !== yearB) return yearA - yearB;
+            const weekA = parseInt(matchA[1]);
+            const weekB = parseInt(matchB[1]);
+            return weekA - weekB;
+          }
+        } else if (dateGroupingForField === 'month') {
+          // Format: "MMM-YY" (e.g., "Apr-25")
+          const monthMap = { 'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6,
+                            'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12 };
+          const matchA = a.match(/(\w+)-(\d+)/);
+          const matchB = b.match(/(\w+)-(\d+)/);
+          if (matchA && matchB) {
+            const yearA = 2000 + parseInt(matchA[2]); // Convert YY to YYYY
+            const yearB = 2000 + parseInt(matchB[2]);
+            if (yearA !== yearB) return yearA - yearB;
+            const monthA = monthMap[matchA[1]] || 0;
+            const monthB = monthMap[matchB[1]] || 0;
+            return monthA - monthB;
+          }
+        } else if (dateGroupingForField === 'quarter') {
+          // Format: "YYYY-QN" (e.g., "2024-Q1")
+          const matchA = a.match(/(\d+)-Q(\d+)/);
+          const matchB = b.match(/(\d+)-Q(\d+)/);
+          if (matchA && matchB) {
+            const yearA = parseInt(matchA[1]);
+            const yearB = parseInt(matchB[1]);
+            if (yearA !== yearB) return yearA - yearB;
+            const quarterA = parseInt(matchA[2]);
+            const quarterB = parseInt(matchB[2]);
+            return quarterA - quarterB;
+          }
+        } else if (dateGroupingForField === 'year') {
+          // Format: "YYYY"
+          const yearA = parseInt(a);
+          const yearB = parseInt(b);
+          if (!isNaN(yearA) && !isNaN(yearB)) {
+            return yearA - yearB;
+          }
+        } else if (dateGroupingForField === 'finyear') {
+          // Format: "FY-YYYY"
+          const matchA = a.match(/FY-(\d+)/);
+          const matchB = b.match(/FY-(\d+)/);
+          if (matchA && matchB) {
+            const yearA = parseInt(matchA[1]);
+            const yearB = parseInt(matchB[1]);
+            return yearA - yearB;
+          }
+        }
+      } catch (e) {
+        // If parsing fails, fall back to alphabetical
+      }
+      
+      // Fallback to alphabetical sort
+      return a.localeCompare(b);
+    };
+    
+    return Array.from(valuesSet).sort(sortDateGroupedValues);
+  }, [fieldConfig, salesData, getFieldValue, getFieldType, parseDate, groupDate, dateGrouping]);
 
   const filteredValues = useMemo(() => {
     if (!filterSearch.trim()) return availableFilterValues;
@@ -8481,8 +9092,9 @@ const FieldConfigurationModal = ({ fieldConfig, pivotConfig, setPivotConfig, onC
       field.values = filterValues;
     }
     
-    // Handle date grouping for date fields in rows or columns
-    if ((fieldConfig.area === 'rows' || fieldConfig.area === 'columns') && field.type === 'date') {
+    // Handle date grouping for date fields in rows, columns, or filters
+    const isDateField = field.type === 'date' || (getFieldType && getFieldType(field.field) === 'date');
+    if ((fieldConfig.area === 'rows' || fieldConfig.area === 'columns' || fieldConfig.area === 'filters') && isDateField) {
       field.dateGrouping = dateGrouping;
     }
 
@@ -8656,7 +9268,8 @@ const FieldConfigurationModal = ({ fieldConfig, pivotConfig, setPivotConfig, onC
             </>
           )}
 
-          {(fieldConfig.area === 'rows' || fieldConfig.area === 'columns') && fieldConfig.field?.type === 'date' && (
+          {((fieldConfig.area === 'rows' || fieldConfig.area === 'columns' || fieldConfig.area === 'filters') && 
+            (fieldConfig.field?.type === 'date' || (getFieldType && getFieldType(fieldConfig.field?.field) === 'date'))) && (
             <div style={{ marginBottom: '20px' }}>
               <label style={{
                 display: 'block',
@@ -8694,6 +9307,7 @@ const FieldConfigurationModal = ({ fieldConfig, pivotConfig, setPivotConfig, onC
               }}>
                 {dateGrouping === 'finyear' && 'Financial year starts in April'}
                 {dateGrouping === 'week' && 'Week number based on ISO standard'}
+                {fieldConfig.area === 'filters' && 'Filter values will be grouped by this setting'}
               </div>
             </div>
           )}
