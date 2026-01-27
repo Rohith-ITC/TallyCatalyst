@@ -38,7 +38,17 @@ const CustomReports = () => {
   const [pivotTableData, setPivotTableData] = useState(null);
   const [isPivotMode, setIsPivotMode] = useState(false);
   const [fieldConfigModal, setFieldConfigModal] = useState(null); // { field, area, index }
+  const [isFullScreen, setIsFullScreen] = useState(false);
+  const [cacheLastUpdated, setCacheLastUpdated] = useState(null);
   const [selectedCompanyGuidState, setSelectedCompanyGuidState] = useState(() => sessionStorage.getItem('selectedCompanyGuid') || '');
+  
+  // Drilldown state
+  const [drilldownMode, setDrilldownMode] = useState(false);
+  const [drilldownContext, setDrilldownContext] = useState(null); // { rowKey, colKey, rowValues, colValues, valueField, rowFields, colFields }
+  const [drilldownData, setDrilldownData] = useState([]);
+  const [drilldownPage, setDrilldownPage] = useState(1);
+  const [drilldownPageSize, setDrilldownPageSize] = useState(50);
+  const [lookupMapsReady, setLookupMapsReady] = useState(false);
 
   // Helper function to get current company info
   const getCurrentCompany = useCallback(() => {
@@ -59,6 +69,21 @@ const CustomReports = () => {
       console.error('Error getting current company:', error);
       return null;
     }
+  }, []);
+
+  // Helper function to format last updated timestamp
+  const formatLastUpdated = useCallback((timestamp) => {
+    if (!timestamp) return '';
+    const date = new Date(timestamp);
+    return date.toLocaleString('en-IN', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true
+    });
   }, []);
 
   // Load reports from API (reusing dashboard cards endpoint)
@@ -232,6 +257,10 @@ const CustomReports = () => {
         
         const completeCache = await hybridCache.getCompleteSalesData(currentCompanyObj);
         if (completeCache && completeCache.data && completeCache.data.vouchers) {
+          // Store the cache timestamp
+          if (completeCache.metadata && completeCache.metadata.timestamp) {
+            setCacheLastUpdated(completeCache.metadata.timestamp);
+          }
           // Flatten the sales data similar to SalesDashboard - include all inventory entries
           // Create voucher lookup map for nested field access
           const voucherLookupMap = new Map();
@@ -305,6 +334,9 @@ const CustomReports = () => {
             console.error('Error loading stock items data:', stockItemError);
             window.__stockItemLookupMap = new Map();
           }
+          
+          // Mark lookup maps as ready
+          setLookupMapsReady(true);
           
           // Filter to only sales vouchers (same as SalesDashboard)
           const salesVouchers = completeCache.data.vouchers.filter(voucher => {
@@ -432,6 +464,7 @@ const CustomReports = () => {
           // No vouchers data, but still initialize empty lookup maps
           window.__customerLookupMap = new Map();
           window.__stockItemLookupMap = new Map();
+          setLookupMapsReady(true);
         }
       } catch (error) {
         console.error('Error loading sales data:', error);
@@ -439,6 +472,7 @@ const CustomReports = () => {
         // Initialize empty lookup maps on error
         window.__customerLookupMap = new Map();
         window.__stockItemLookupMap = new Map();
+        setLookupMapsReady(true);
       }
     };
     
@@ -641,6 +675,27 @@ const CustomReports = () => {
       return stockItem[fieldPath] || stockItem[fieldPath.toUpperCase()] || stockItem[fieldPath.toLowerCase()] || null;
     }
     
+    // Special handling for allinventoryentries.* when using flattened sales data
+    // Each row in salesData is already one inventory entry, so map these to the
+    // current row's item-level fields instead of walking the voucher array.
+    const fieldNameLower = fieldName.toLowerCase();
+    if (fieldNameLower.startsWith('allinventoryentries.')) {
+      const subField = fieldNameLower.substring('allinventoryentries.'.length);
+
+      if (subField === 'item' || subField === 'stockitemname') {
+        return item.stockitemname || item.item || item.stockitemnameid || item.itemid || null;
+      }
+
+      if (subField === 'quantity' || subField === 'qty' || subField === 'billedqty' || subField === 'actualqty') {
+        return item.quantity || item.qty || item.billedqty || item.actualqty || null;
+      }
+
+      if (subField === 'amount' || subField === 'value') {
+        return item.amount || item.value || null;
+      }
+      // For any other subfields, fall through to the generic nested-field logic below
+    }
+    
     // Handle nested field paths (existing logic)
     if (fieldName.includes('.')) {
       // If we have expanded array entry and field belongs to that array, get from array entry
@@ -694,8 +749,6 @@ const CustomReports = () => {
     }
     
     // Handle common field name variations
-    const fieldNameLower = fieldName.toLowerCase();
-    
     // Item field variations
     if (fieldNameLower === 'item') {
       return item.stockitemname || item.item || item.stockitemnameid || item.itemid || null;
@@ -1230,6 +1283,25 @@ const CustomReports = () => {
   // Generate pivot table when config changes (use report table data, not all sales data)
   useEffect(() => {
     if (isPivotMode && pivotConfig && (pivotConfig.rows.length > 0 || pivotConfig.columns.length > 0) && pivotConfig.values.length > 0) {
+      // Wait for lookup maps to be ready if we're using fields that require them
+      const needsLookupMaps = pivotConfig.rows.some(f => f.field.startsWith('customers.') || f.field.startsWith('stockitems.')) ||
+                              pivotConfig.columns.some(f => f.field.startsWith('customers.') || f.field.startsWith('stockitems.')) ||
+                              pivotConfig.values.some(f => f.field.startsWith('customers.') || f.field.startsWith('stockitems.'));
+      
+      if (needsLookupMaps && !lookupMapsReady) {
+        // Maps not ready yet - wait a bit and recalculate
+        const timeoutId = setTimeout(() => {
+          if (window.__voucherLookupMap && window.__customerLookupMap && window.__stockItemLookupMap) {
+            const dataToUse = reportData && reportData.rows && reportData.rows.length > 0 
+              ? reportData.rows 
+              : [];
+            const pivotData = generatePivotTable(dataToUse, pivotConfig, getFieldType, parseDate);
+            setPivotTableData(pivotData);
+          }
+        }, 150);
+        return () => clearTimeout(timeoutId);
+      }
+      
       // Use reportData.rows which contains only the data from the current report table
       const dataToUse = reportData && reportData.rows && reportData.rows.length > 0 
         ? reportData.rows 
@@ -1239,7 +1311,17 @@ const CustomReports = () => {
     } else {
       setPivotTableData(null);
     }
-  }, [pivotConfig, isPivotMode, reportData, generatePivotTable]);
+  }, [pivotConfig, isPivotMode, reportData, generatePivotTable, lookupMapsReady]);
+
+  // Reset drilldown when switching modes
+  useEffect(() => {
+    if (!isPivotMode && drilldownMode) {
+      setDrilldownMode(false);
+      setDrilldownContext(null);
+      setDrilldownData([]);
+      setDrilldownPage(1);
+    }
+  }, [isPivotMode, drilldownMode]);
 
   // Save pivot config to report via API
   const savePivotConfigToReport = useCallback(async (config) => {
@@ -1446,8 +1528,324 @@ const CustomReports = () => {
     }
   }, [getCurrentCompany, setReports, setSelectedReport]);
 
+  // Handle cell drilldown - supports row-only, column-only, or both
+  const handleCellDrilldown = useCallback((rowKey = null, colKey = null, valueField = null) => {
+    if (!reportData || !reportData.rows || reportData.rows.length === 0) {
+      alert('No data available for drilldown');
+      return;
+    }
+
+    // Parse rowKey and colKey to get actual field values
+    const splitKey = (key) => {
+      if (!key || key === 'Total') return ['Total'];
+      try {
+        const parsed = JSON.parse(key);
+        return Array.isArray(parsed) ? parsed : [String(parsed)];
+      } catch (e) {
+        return [String(key)];
+      }
+    };
+
+    const rowValues = rowKey ? splitKey(rowKey) : null;
+    const colValues = colKey ? splitKey(colKey) : null;
+
+    // Filter the original data to match the cell criteria
+    const filteredRecords = reportData.rows.filter(item => {
+      // Check row field matches (if rowKey provided)
+      let rowMatch = true;
+      if (rowValues && pivotConfig.rows.length > 0) {
+        rowMatch = pivotConfig.rows.every((rowField, idx) => {
+          const fieldValue = getFieldValue(item, rowField.field);
+          let compareValue = fieldValue == null ? '(blank)' : String(fieldValue);
+          
+          // Handle date grouping
+          const fieldType = getFieldType(rowField.field);
+          if (fieldType === 'date' && rowField.dateGrouping && rowField.dateGrouping !== 'day') {
+            const dateObj = parseDate(compareValue);
+            if (dateObj && !isNaN(dateObj.getTime())) {
+              compareValue = groupDate(dateObj, rowField.dateGrouping);
+            }
+          }
+          
+          return compareValue === rowValues[idx];
+        });
+      }
+
+      // Check column field matches (if colKey provided)
+      let colMatch = true;
+      if (colValues && pivotConfig.columns.length > 0) {
+        colMatch = pivotConfig.columns.every((colField, idx) => {
+          const fieldValue = getFieldValue(item, colField.field);
+          let compareValue = fieldValue == null ? '(blank)' : String(fieldValue);
+          
+          // Handle date grouping
+          const fieldType = getFieldType(colField.field);
+          if (fieldType === 'date' && colField.dateGrouping && colField.dateGrouping !== 'day') {
+            const dateObj = parseDate(compareValue);
+            if (dateObj && !isNaN(dateObj.getTime())) {
+              compareValue = groupDate(dateObj, colField.dateGrouping);
+            }
+          }
+          
+          return compareValue === colValues[idx];
+        });
+      }
+
+      return rowMatch && colMatch;
+    });
+
+    // Set drilldown context and data
+    setDrilldownContext({
+      rowKey,
+      colKey,
+      rowValues,
+      colValues,
+      valueField,
+      rowFields: pivotConfig.rows,
+      colFields: pivotConfig.columns
+    });
+    setDrilldownData(filteredRecords);
+    setDrilldownPage(1);
+    setDrilldownMode(true);
+  }, [reportData, pivotConfig, getFieldValue, getFieldType, parseDate, groupDate]);
+
+  // Function to go back from drilldown
+  const handleDrilldownBack = useCallback(() => {
+    setDrilldownMode(false);
+    setDrilldownContext(null);
+    setDrilldownData([]);
+    setDrilldownPage(1);
+  }, []);
+
   // Open report modal
-  const handleOpenReport = (report, pivotOverride = null) => {
+  const handleOpenReport = async (report, pivotOverride = null) => {
+    // Get current salesData - will reload if empty
+    let dataToUse = salesData;
+    
+    // If salesData is empty, reload it first
+    if (!salesData || salesData.length === 0) {
+      try {
+        const companies = JSON.parse(sessionStorage.getItem('allConnections') || '[]');
+        const selectedCompanyGuid = sessionStorage.getItem('selectedCompanyGuid') || '';
+        const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId') || '';
+        
+        const currentCompanyObj = companies.find(c =>
+          c.guid === selectedCompanyGuid &&
+          (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+        );
+        
+        if (currentCompanyObj && currentCompanyObj.tallyloc_id && currentCompanyObj.guid) {
+          const completeCache = await hybridCache.getCompleteSalesData(currentCompanyObj);
+          if (completeCache && completeCache.data && completeCache.data.vouchers) {
+            // Store the cache timestamp
+            if (completeCache.metadata && completeCache.metadata.timestamp) {
+              setCacheLastUpdated(completeCache.metadata.timestamp);
+            }
+            // Flatten the sales data
+            const voucherLookupMap = new Map();
+            completeCache.data.vouchers.forEach(voucher => {
+              const masterid = voucher.masterid || voucher.mstid;
+              if (masterid) {
+                voucherLookupMap.set(String(masterid), voucher);
+              }
+            });
+            window.__voucherLookupMap = voucherLookupMap;
+
+            // Load customer/ledger data
+            try {
+              const customers = await hybridCache.getCustomerData(currentCompanyObj);
+              if (customers && Array.isArray(customers)) {
+                const customerLookupMap = new Map();
+                customers.forEach(customer => {
+                  const name = customer.NAME || customer.name;
+                  const guid = customer.GUID || customer.guid;
+                  if (name) {
+                    customerLookupMap.set(String(name).toLowerCase(), customer);
+                  }
+                  if (guid) {
+                    customerLookupMap.set(String(guid), customer);
+                  }
+                  const id = customer.MASTERID || customer.masterid || customer.PARTYLEDGERNAMEID || customer.partyledgernameid;
+                  if (id) {
+                    customerLookupMap.set(String(id), customer);
+                  }
+                });
+                window.__customerLookupMap = customerLookupMap;
+              } else {
+                window.__customerLookupMap = new Map();
+              }
+            } catch (customerError) {
+              console.error('Error loading customer data:', customerError);
+              window.__customerLookupMap = new Map();
+            }
+
+            // Load stock items data
+            try {
+              const { tallyloc_id, company } = currentCompanyObj;
+              const stockItemsCacheKey = `stockitems_${tallyloc_id}_${company}`;
+              const stockItemsCache = await hybridCache.getSalesData(stockItemsCacheKey);
+              if (stockItemsCache && stockItemsCache.stockItems && Array.isArray(stockItemsCache.stockItems)) {
+                const stockItems = stockItemsCache.stockItems;
+                const stockItemLookupMap = new Map();
+                stockItems.forEach(item => {
+                  const name = item.NAME || item.name;
+                  const guid = item.GUID || item.guid;
+                  if (name) {
+                    stockItemLookupMap.set(String(name).toLowerCase(), item);
+                  }
+                  if (guid) {
+                    stockItemLookupMap.set(String(guid), item);
+                  }
+                  const id = item.MASTERID || item.masterid || item.STOCKITEMNAMEID || item.stockitemnameid;
+                  if (id) {
+                    stockItemLookupMap.set(String(id), item);
+                  }
+                });
+                window.__stockItemLookupMap = stockItemLookupMap;
+              } else {
+                window.__stockItemLookupMap = new Map();
+              }
+            } catch (stockError) {
+              console.error('Error loading stock items data:', stockError);
+              window.__stockItemLookupMap = new Map();
+            }
+
+            // Filter to only sales vouchers (same as SalesDashboard)
+            const salesVouchers = completeCache.data.vouchers.filter(voucher => {
+              const reservedname = (voucher.reservedname || '').toLowerCase().trim();
+              const isoptional = (voucher.isoptional || voucher.isOptional || '').toString().toLowerCase().trim();
+              const iscancelled = (voucher.iscancelled || voucher.isCancelled || '').toString().toLowerCase().trim();
+              const ledgerEntries = voucher.ledgerentries || voucher.ledgers || [];
+              const hasPartyLedger = Array.isArray(ledgerEntries) && ledgerEntries.some(ledger => {
+                const ispartyledger = (ledger.ispartyledger || ledger.isPartyLedger || '').toString().toLowerCase().trim();
+                return ispartyledger === 'yes';
+              });
+              
+              return (reservedname === 'sales' || reservedname === 'credit note') && 
+                     isoptional === 'no' && 
+                     iscancelled === 'no' && 
+                     hasPartyLedger;
+            });
+            
+            // Flatten vouchers - one record per inventory entry (same as SalesDashboard)
+            const flattened = salesVouchers.flatMap(voucher => {
+              const voucherDateRaw = voucher.cp_date || voucher.date || voucher.DATE || voucher.CP_DATE;
+              let voucherDate = null;
+              if (voucherDateRaw) {
+                if (/^\d{8}$/.test(voucherDateRaw)) {
+                  const year = voucherDateRaw.substring(0, 4);
+                  const month = voucherDateRaw.substring(4, 6);
+                  const day = voucherDateRaw.substring(6, 8);
+                  voucherDate = `${year}-${month}-${day}`;
+                } else if (/^\d{4}-\d{2}-\d{2}$/.test(voucherDateRaw)) {
+                  voucherDate = voucherDateRaw;
+                } else {
+                  voucherDate = voucherDateRaw;
+                }
+              }
+              
+              const baseRecord = {
+                masterid: voucher.masterid || voucher.mstid,
+                mstid: voucher.mstid || voucher.masterid,
+                date: voucherDate,
+                cp_date: voucherDate,
+                customer: voucher.partyledgername || voucher.party || 'Unknown',
+                partyledgername: voucher.partyledgername || voucher.party || 'Unknown',
+                partyledgernameid: voucher.partyledgernameid || voucher.partyid || '',
+                partyid: voucher.partyid || voucher.partyledgernameid || '',
+                vouchernumber: voucher.vouchernumber || voucher.vchno || '',
+                vchno: voucher.vchno || voucher.vouchernumber || '',
+                alterid: voucher.alterid,
+                gstno: voucher.partygstin || voucher.gstno || '',
+                pincode: voucher.pincode || '',
+                reference: voucher.reference || '',
+                vchtype: voucher.vouchertypename || voucher.vchtype || '',
+                region: voucher.state || 'Unknown',
+                country: voucher.country || 'Unknown',
+                salesperson: voucher.salesprsn || voucher.salesperson || voucher.salespersonname || 'Unassigned',
+                ...voucher
+              };
+              
+              const inventoryItems = voucher.allinventoryentries || voucher.inventry || [];
+              if (Array.isArray(inventoryItems) && inventoryItems.length > 0) {
+                return inventoryItems.map((inventoryItem) => {
+                  const stockGroup = inventoryItem.stockitemgroup || inventoryItem.group || 
+                                   inventoryItem.stockitemgrouplist?.split('|')[0] || 
+                                   inventoryItem.grouplist?.split('|')[0] || 'Other';
+                  const stockCategory = inventoryItem.stockitemcategory || 
+                                      inventoryItem.stockitemcategorylist?.split('|')[0] || 
+                                      stockGroup;
+                  
+                  let ledgerGroup = 'Other';
+                  if (inventoryItem.accalloc && Array.isArray(inventoryItem.accalloc) && inventoryItem.accalloc.length > 0) {
+                    const accountAlloc = inventoryItem.accalloc[0];
+                    ledgerGroup = accountAlloc.ledgergroupidentify || accountAlloc.group || 
+                                accountAlloc.grouplist?.split('|')[0] || 'Other';
+                  }
+                  
+                  const parseAmount = (amountStr) => {
+                    if (!amountStr) return 0;
+                    const cleaned = String(amountStr).replace(/,/g, '').replace(/[()]/g, '');
+                    const isNegative = cleaned.includes('(-)') || (cleaned.startsWith('-') && !cleaned.startsWith('(-)'));
+                    const numValue = parseFloat(cleaned.replace(/[()]/g, '')) || 0;
+                    return isNegative ? -Math.abs(numValue) : numValue;
+                  };
+                  
+                  const parseQuantity = (qtyStr) => {
+                    if (!qtyStr) return 0;
+                    const cleaned = String(qtyStr).replace(/,/g, '');
+                    return parseInt(cleaned, 10) || 0;
+                  };
+                  
+                  return {
+                    ...baseRecord,
+                    item: inventoryItem.stockitemname || inventoryItem.item || 'Unknown',
+                    stockitemname: inventoryItem.stockitemname || inventoryItem.item || 'Unknown',
+                    stockitemnameid: inventoryItem.stockitemnameid || inventoryItem.itemid || '',
+                    itemid: inventoryItem.stockitemnameid || inventoryItem.itemid || '',
+                    category: stockCategory,
+                    stockgroup: stockGroup,
+                    ledgerGroup: ledgerGroup,
+                    quantity: parseQuantity(inventoryItem.quantity || inventoryItem.qty || inventoryItem.billedqty || 0),
+                    qty: parseQuantity(inventoryItem.quantity || inventoryItem.qty || inventoryItem.billedqty || 0),
+                    rate: parseAmount(inventoryItem.rate || inventoryItem.price || 0),
+                    price: parseAmount(inventoryItem.rate || inventoryItem.price || 0),
+                    amount: parseAmount(inventoryItem.amount || inventoryItem.value || 0),
+                    value: parseAmount(inventoryItem.amount || inventoryItem.value || 0),
+                    ...inventoryItem
+                  };
+                });
+              } else {
+                return [baseRecord];
+              }
+            });
+            
+            dataToUse = flattened;
+            setSalesData(flattened);
+            console.log(`✅ Reloaded ${flattened.length} sales records when opening report`);
+            // Mark lookup maps as ready after loading
+            setLookupMapsReady(true);
+          }
+        }
+      } catch (error) {
+        console.error('Error reloading sales data when opening report:', error);
+      }
+    } else {
+      // salesData already exists - verify lookup maps are ready
+      // Check if maps exist (they should be set from initial load)
+      const mapsExist = window.__voucherLookupMap && 
+                       window.__customerLookupMap && 
+                       window.__stockItemLookupMap;
+      if (mapsExist) {
+        // Maps exist - mark as ready (they may be empty but that's okay)
+        setLookupMapsReady(true);
+      } else {
+        // Maps don't exist - this shouldn't happen if initial load worked
+        // But set ready anyway to avoid blocking
+        setLookupMapsReady(true);
+      }
+    }
+    
     // If pivotOverride is provided (clicking on a pivot badge), use that pivot config
     // Otherwise, check if report has saved pivot mode and restore it
     const effectivePivotConfig = pivotOverride?.config || (report.isPivotMode && report.pivotConfig ? report.pivotConfig : null);
@@ -1541,18 +1939,23 @@ const CustomReports = () => {
       const pathParts = firstNestedField.split('.');
       const fieldName = pathParts[0].toLowerCase();
       
-      const knownArrayFields = ['ledgerentries', 'allledgerentries', 'allinventoryentries', 
-                                'inventoryentries', 'billallocations', 'batchallocation', 
-                                'accountingallocation', 'address'];
+      // IMPORTANT:
+      // We ONLY expand for inventory-entry arrays.
+      // The sales data here is already flattened to "one row per inventory entry"
+      // when loaded. Expanding voucher-level arrays like ledgerentries or
+      // billallocations would create a Cartesian product (items × ledgerentries ×
+      // billallocations, etc.) and cause repeated rows in custom reports.
+      // To avoid that, we restrict expansion to ONLY inventory-entry arrays.
+      const expandableInventoryArrays = ['allinventoryentries', 'inventoryentries'];
       
-      if (knownArrayFields.includes(fieldName)) {
+      if (expandableInventoryArrays.includes(fieldName)) {
         needsExpansion = true;
         arrayFieldName = fieldName;
       }
     }
     
     // Expand data BEFORE filtering if we have nested array fields/filters
-    let dataToProcess = [...salesData];
+    let dataToProcess = [...dataToUse];
     if (needsExpansion && arrayFieldName) {
       const newExpandedData = [];
       
@@ -1682,10 +2085,22 @@ const CustomReports = () => {
     });
     
     setReportData({ rows, columns });
+    
+    // Ensure lookup maps are marked as ready before showing report
+    // This is critical for pivot tables that use customers.* or stockitems.* fields
+    if (window.__voucherLookupMap && window.__customerLookupMap && window.__stockItemLookupMap) {
+      setLookupMapsReady(true);
+    }
+    
     setShowReportModal(true);
     setReportPage(1);
     setReportSearch('');
     setColumnFilters({});
+    // Reset drilldown mode when opening a new report
+    setDrilldownMode(false);
+    setDrilldownContext(null);
+    setDrilldownData([]);
+    setDrilldownPage(1);
   };
 
   // Filtered reports
@@ -2690,6 +3105,20 @@ const CustomReports = () => {
                       const workbook = new ExcelJS.Workbook();
                       const worksheet = workbook.addWorksheet('Pivot Table');
                       
+                      // Add timestamp row at the top if available
+                      if (cacheLastUpdated) {
+                        const lastUpdatedText = `Data last updated from Tally: ${formatLastUpdated(cacheLastUpdated)}`;
+                        const timestampRow = worksheet.addRow([lastUpdatedText]);
+                        timestampRow.font = { bold: true, size: 10 };
+                        timestampRow.fill = {
+                          type: 'pattern',
+                          pattern: 'solid',
+                          fgColor: { argb: 'FFF8FAFC' }
+                        };
+                        // Add empty row after timestamp
+                        worksheet.addRow([]);
+                      }
+                      
                       // Helper to format values (for Excel - numeric values)
                       const formatValue = (value, valueField) => {
                         if (value == null || value === undefined) return null;
@@ -2700,8 +3129,19 @@ const CustomReports = () => {
                           scaledValue = value / valueField.scaleFactor;
                         }
                         
+                        // Check if value is zero and hideZeros is enabled
+                        const isZero = typeof scaledValue === 'number' && scaledValue === 0;
+                        if (isZero && valueField.hideZeros) {
+                          return null; // Return null for zero values (will be displayed as blank in Excel)
+                        }
+                        
                         if (valueField.aggregation === 'count' || valueField.aggregation === 'distinctCount') {
-                          return Math.round(scaledValue);
+                          const roundedValue = Math.round(scaledValue);
+                          // Check again for zero after rounding
+                          if (roundedValue === 0 && valueField.hideZeros) {
+                            return null;
+                          }
+                          return roundedValue;
                         }
                         if (typeof value === 'number') {
                           if (valueField.format === 'currency') {
@@ -3072,17 +3512,98 @@ const CustomReports = () => {
                         const excelRow = worksheet.addRow(row.map(cell => getCellValue(cell)));
                       });
                       
+                      // Calculate offset for timestamp rows (2 rows: timestamp + empty)
+                      const timestampRowOffset = cacheLastUpdated ? 2 : 0;
+                      
+                      // Calculate header row count
+                      const headerRowCount = numColFields > 0 ? 3 : 1;
+                      
+                      // Set value columns as numbers with appropriate formatting
+                      pivotRows.forEach((row, rowIndex) => {
+                        // Skip header rows
+                        if (rowIndex >= headerRowCount) {
+                          const excelRow = worksheet.getRow(rowIndex + 1 + timestampRowOffset);
+                          
+                          excelRow.eachCell((cell, colNumber) => {
+                            // Check if this is a value column (not a row field)
+                            if (colNumber > numRowFields) {
+                              const cellValue = cell.value;
+                              
+                              // Skip if cell is empty or null
+                              if (cellValue === null || cellValue === undefined || cellValue === '') {
+                                return;
+                              }
+                              
+                              // Calculate which value field this column belongs to
+                              // Account for column groups and total column
+                              const valueColIndex = colNumber - numRowFields - 1;
+                              let valueFieldIndex;
+                              
+                              if (hasTotalColumn && valueColIndex >= numColGroups * numValueFields) {
+                                // This is in the total column
+                                valueFieldIndex = valueColIndex - (numColGroups * numValueFields);
+                              } else {
+                                // This is in a regular column group
+                                valueFieldIndex = valueColIndex % numValueFields;
+                              }
+                              
+                              const valueField = pivotConfig.values[valueFieldIndex];
+                              
+                              if (valueField) {
+                                // Convert to number if it's not already
+                                const numValue = typeof cellValue === 'number' ? cellValue : parseFloat(cellValue);
+                                
+                                if (!isNaN(numValue)) {
+                                  cell.value = numValue;
+                                  // Note: cell.type is read-only, ExcelJS automatically infers type from value
+                                  
+                                  // Set number format based on field format
+                                  const decimalPlaces = valueField.decimalPlaces !== undefined && valueField.decimalPlaces !== null 
+                                    ? valueField.decimalPlaces 
+                                    : null;
+                                  
+                                  if (valueField.format === 'currency') {
+                                    const places = decimalPlaces !== null ? decimalPlaces : 2;
+                                    cell.numFmt = `"₹"#,##0.${'0'.repeat(places)}`;
+                                  } else if (valueField.format === 'percentage') {
+                                    const places = decimalPlaces !== null ? decimalPlaces : 2;
+                                    cell.numFmt = `0.${'0'.repeat(places)}%`;
+                                  } else {
+                                    // Number format
+                                    if (decimalPlaces !== null) {
+                                      cell.numFmt = `#,##0.${'0'.repeat(decimalPlaces)}`;
+                                    } else {
+                                      // Default based on aggregation
+                                      if (valueField.aggregation === 'count' || valueField.aggregation === 'distinctCount') {
+                                        cell.numFmt = '#,##0';
+                                      } else {
+                                        cell.numFmt = '#,##0.00';
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          });
+                        }
+                      });
+                      
                       // Apply all merged cells after rows are added
                       merges.forEach(merge => {
                         worksheet.mergeCells(
-                          merge.s.r + 1, merge.s.c + 1, // ExcelJS uses 1-based indexing
-                          merge.e.r + 1, merge.e.c + 1
+                          merge.s.r + 1 + timestampRowOffset, merge.s.c + 1, // ExcelJS uses 1-based indexing, add offset for timestamp rows
+                          merge.e.r + 1 + timestampRowOffset, merge.e.c + 1
                         );
                       });
                       
+                      // Merge timestamp row across all columns if present
+                      if (cacheLastUpdated && maxCols > 0) {
+                        worksheet.mergeCells(1, 1, 1, maxCols);
+                      }
+                      
                       // Apply styling to rows
                       pivotRows.forEach((row, rowIndex) => {
-                        const excelRow = worksheet.getRow(rowIndex + 1);
+                        const excelRow = worksheet.getRow(rowIndex + 1 + timestampRowOffset);
                         
                         // Style header rows
                         const headerRowCount = numColFields > 0 ? 3 : 1;
@@ -3181,23 +3702,47 @@ const CustomReports = () => {
                       const wb = XLSX.utils.book_new();
                       
                       // Build data array
-                      const dataRows = [
-                        reportData.columns.map(col => col.label),
-                      ...filteredReportRows.map(row =>
+                      const dataRows = [];
+                      
+                      // Add timestamp row at the top if available
+                      if (cacheLastUpdated) {
+                        const lastUpdatedText = `Data last updated from Tally: ${formatLastUpdated(cacheLastUpdated)}`;
+                        // Create a row with the timestamp merged across all columns
+                        const timestampRow = new Array(reportData.columns.length).fill('');
+                        timestampRow[0] = lastUpdatedText;
+                        dataRows.push(timestampRow);
+                        dataRows.push([]); // Empty row after timestamp
+                      }
+                      
+                      // Add header row
+                      dataRows.push(reportData.columns.map(col => col.label));
+                      
+                      // Add data rows
+                      dataRows.push(...filteredReportRows.map(row =>
                         reportData.columns.map(col => {
                           const value = row[col.key] ?? '';
-                            return value;
-                          })
-                        )
-                      ];
+                          // Convert to number if column is numeric type
+                          const fieldType = getFieldType(col.key);
+                          if (fieldType === 'number' || col.format === 'number' || col.format === 'currency') {
+                            if (value === '' || value === null || value === undefined) {
+                              return '';
+                            }
+                            const numValue = typeof value === 'number' ? value : parseFloat(value);
+                            return isNaN(numValue) ? value : numValue;
+                          }
+                          return value;
+                        })
+                      ));
                       
                       // Create worksheet
                       const ws = XLSX.utils.aoa_to_sheet(dataRows);
                       
                       // Set column widths
                       const colWidths = reportData.columns.map((col, i) => {
+                        const timestampLength = cacheLastUpdated ? formatLastUpdated(cacheLastUpdated).length + 30 : 0; // "Data last updated from Tally: " + date
                         const maxLength = Math.max(
                           col.label.length,
+                          timestampLength,
                           ...filteredReportRows.map(row => String(row[col.key] || '').length)
                         );
                         return { wch: Math.min(Math.max(maxLength + 2, 10), 50) };
@@ -3240,6 +3785,40 @@ const CustomReports = () => {
                   <span className="material-icons" style={{ fontSize: '18px' }}>download</span>
                   Download Excel
                 </button>
+                {/* View Full Screen button */}
+                {isPivotMode && pivotTableData && (
+                  <button
+                    onClick={() => setIsFullScreen(true)}
+                    style={{
+                      background: 'white',
+                      border: '2px solid #e2e8f0',
+                      borderRadius: '8px',
+                      padding: '8px 14px',
+                      cursor: 'pointer',
+                      color: '#475569',
+                      fontSize: '13px',
+                      fontWeight: '500',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      transition: 'all 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = '#f8fafc';
+                      e.currentTarget.style.borderColor = '#3b82f6';
+                      e.currentTarget.style.color = '#3b82f6';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'white';
+                      e.currentTarget.style.borderColor = '#e2e8f0';
+                      e.currentTarget.style.color = '#475569';
+                    }}
+                    title="View Full Screen"
+                  >
+                    <span className="material-icons" style={{ fontSize: '18px' }}>fullscreen</span>
+                    View Full Screen
+                  </button>
+                )}
                 <button
                   onClick={() => {
                     setShowReportModal(false);
@@ -3640,18 +4219,77 @@ const CustomReports = () => {
 
               {/* Table or Pivot Table */}
               {isPivotMode && pivotTableData ? (
-                <PivotTableRenderer
-                  pivotData={pivotTableData}
-                  pivotConfig={pivotConfig}
-                  setPivotConfig={setPivotConfig}
-                  getFieldLabel={getFieldLabel}
-                />
+                drilldownMode ? (
+                  <DrilldownView
+                    drilldownContext={drilldownContext}
+                    drilldownData={drilldownData}
+                    page={drilldownPage}
+                    pageSize={drilldownPageSize}
+                    onPageChange={setDrilldownPage}
+                    onPageSizeChange={(newSize) => {
+                      setDrilldownPageSize(newSize);
+                      setDrilldownPage(1); // Reset to first page when page size changes
+                    }}
+                    onBack={handleDrilldownBack}
+                    getFieldLabel={getFieldLabel}
+                    formatCellValue={formatCellValue}
+                    getFieldValue={getFieldValue}
+                    reportData={reportData}
+                  />
+                ) : (
+                  <>
+                    {/* Last Updated Timestamp for Pivot Table */}
+                    {cacheLastUpdated && (
+                      <div style={{
+                        padding: '8px 12px',
+                        background: '#f8fafc',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '6px',
+                        marginBottom: '12px',
+                        fontSize: '12px',
+                        color: '#64748b',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                      }}>
+                        <span className="material-icons" style={{ fontSize: '16px' }}>update</span>
+                        <span>Data last updated from Tally: {formatLastUpdated(cacheLastUpdated)}</span>
+                      </div>
+                    )}
+                    <PivotTableRenderer
+                      pivotData={pivotTableData}
+                      pivotConfig={pivotConfig}
+                      setPivotConfig={setPivotConfig}
+                      getFieldLabel={getFieldLabel}
+                      onCellDrilldown={handleCellDrilldown}
+                    />
+                  </>
+                )
               ) : (
-              <div style={{
-                overflowX: 'auto',
-                  border: '1px solid #d1d5db',
-                  background: 'white'
-              }}>
+              <>
+                {/* Last Updated Timestamp for Table */}
+                {cacheLastUpdated && (
+                  <div style={{
+                    padding: '8px 12px',
+                    background: '#f8fafc',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '6px',
+                    marginBottom: '12px',
+                    fontSize: '12px',
+                    color: '#64748b',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}>
+                    <span className="material-icons" style={{ fontSize: '16px' }}>update</span>
+                    <span>Data last updated from Tally: {formatLastUpdated(cacheLastUpdated)}</span>
+                  </div>
+                )}
+                <div style={{
+                  overflowX: 'auto',
+                    border: '1px solid #d1d5db',
+                    background: 'white'
+                }}>
                 <table style={{
                   width: '100%',
                   borderCollapse: 'collapse',
@@ -3796,6 +4434,7 @@ const CustomReports = () => {
                   </tbody>
                 </table>
               </div>
+              </>
               )}
 
               {/* Pagination */}
@@ -4011,6 +4650,135 @@ const CustomReports = () => {
               loadReports();
             }}
           />
+        </div>
+      )}
+
+      {/* Full Screen Modal */}
+      {isFullScreen && isPivotMode && pivotTableData && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: '#ffffff',
+            zIndex: 18000,
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden'
+          }}
+        >
+          {/* Full Screen Header */}
+          <div style={{
+            padding: '16px 24px',
+            borderBottom: '2px solid #e2e8f0',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            background: '#ffffff',
+            flexShrink: 0
+          }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1 }}>
+              <h2 style={{
+                fontSize: '20px',
+                fontWeight: '700',
+                color: '#1e293b',
+                margin: 0,
+                lineHeight: '1.2'
+              }}>
+                {selectedReport?.title || 'Pivot Table'}
+              </h2>
+              {cacheLastUpdated && (
+                <div style={{
+                  fontSize: '12px',
+                  color: '#64748b',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}>
+                  <span className="material-icons" style={{ fontSize: '14px' }}>update</span>
+                  <span>Data last updated from Tally: {formatLastUpdated(cacheLastUpdated)}</span>
+                </div>
+              )}
+            </div>
+            <button
+              onClick={() => setIsFullScreen(false)}
+              style={{
+                background: 'transparent',
+                border: '2px solid #e2e8f0',
+                cursor: 'pointer',
+                padding: '8px',
+                borderRadius: '8px',
+                color: '#64748b',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '36px',
+                height: '36px',
+                transition: 'all 0.2s ease'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = '#fee2e2';
+                e.currentTarget.style.borderColor = '#ef4444';
+                e.currentTarget.style.color = '#ef4444';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent';
+                e.currentTarget.style.borderColor = '#e2e8f0';
+                e.currentTarget.style.color = '#64748b';
+              }}
+              title="Close Full Screen"
+            >
+              <span className="material-icons" style={{ fontSize: '22px' }}>close</span>
+            </button>
+          </div>
+
+          {/* Full Screen Content */}
+          <div style={{
+            flex: 1,
+            overflow: 'hidden',
+            display: 'flex',
+            flexDirection: 'column',
+            background: '#ffffff',
+            width: '100%',
+            height: '100%'
+          }}>
+            <div style={{
+              flex: 1,
+              overflow: 'auto',
+              width: '100%',
+              height: '100%'
+            }}>
+              {drilldownMode ? (
+                <DrilldownView
+                  drilldownContext={drilldownContext}
+                  drilldownData={drilldownData}
+                  page={drilldownPage}
+                  pageSize={drilldownPageSize}
+                  onPageChange={setDrilldownPage}
+                  onPageSizeChange={(newSize) => {
+                    setDrilldownPageSize(newSize);
+                    setDrilldownPage(1);
+                  }}
+                  onBack={handleDrilldownBack}
+                  getFieldLabel={getFieldLabel}
+                  formatCellValue={formatCellValue}
+                  getFieldValue={getFieldValue}
+                  reportData={reportData}
+                />
+              ) : (
+                <PivotTableRenderer
+                  pivotData={pivotTableData}
+                  pivotConfig={pivotConfig}
+                  setPivotConfig={setPivotConfig}
+                  getFieldLabel={getFieldLabel}
+                  isFullScreen={true}
+                  onCellDrilldown={handleCellDrilldown}
+                />
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -6779,10 +7547,312 @@ const CustomReportModal = ({ salesData, onClose, initialReport = null }) => {
 };
 
 // Pivot Table Renderer Component
-const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLabel }) => {
+// Drilldown View Component
+const DrilldownView = ({ 
+  drilldownContext, 
+  drilldownData, 
+  page, 
+  pageSize, 
+  onPageChange, 
+  onPageSizeChange, 
+  onBack,
+  getFieldLabel,
+  formatCellValue,
+  getFieldValue,
+  reportData
+}) => {
+  const totalPages = Math.ceil(drilldownData.length / pageSize);
+  const startIndex = (page - 1) * pageSize;
+  const endIndex = startIndex + pageSize;
+  const paginatedData = drilldownData.slice(startIndex, endIndex);
+
+  const allFields = useMemo(() => {
+    if (!drilldownData || drilldownData.length === 0) return [];
+
+    // Collect all field keys from the drilldown records (raw underlying rows)
+    const fieldSet = new Set();
+    drilldownData.forEach(item => {
+      Object.keys(item).forEach(key => {
+        // Skip internal/meta fields
+        if (key.startsWith('__')) return;
+        fieldSet.add(key);
+      });
+    });
+
+    const allKeys = Array.from(fieldSet);
+
+    // If the report has configured columns, show those first (to keep familiarity),
+    // then append any additional fields from the raw records.
+    if (reportData && Array.isArray(reportData.columns) && reportData.columns.length > 0) {
+      const configuredOrder = reportData.columns.map(col => col.key).filter(k => fieldSet.has(k));
+      const remaining = allKeys.filter(k => !configuredOrder.includes(k)).sort();
+      return [...configuredOrder, ...remaining];
+    }
+
+    // No configured columns – just return all fields sorted
+    return allKeys.sort();
+  }, [reportData, drilldownData]);
+
+  // Build context description
+  const contextDescription = useMemo(() => {
+    if (!drilldownContext) return '';
+    const parts = [];
+    
+    if (drilldownContext.rowValues && drilldownContext.rowFields && drilldownContext.rowFields.length > 0) {
+      const rowDesc = drilldownContext.rowFields.map((field, idx) => {
+        const label = getFieldLabel ? getFieldLabel(field.field) : field.label || field.field;
+        return `${label}: ${drilldownContext.rowValues[idx]}`;
+      }).join(', ');
+      parts.push(`Rows: ${rowDesc}`);
+    }
+    
+    if (drilldownContext.colValues && drilldownContext.colFields && drilldownContext.colFields.length > 0) {
+      const colDesc = drilldownContext.colFields.map((field, idx) => {
+        const label = getFieldLabel ? getFieldLabel(field.field) : field.label || field.field;
+        return `${label}: ${drilldownContext.colValues[idx]}`;
+      }).join(', ');
+      parts.push(`Columns: ${colDesc}`);
+    }
+    
+    if (drilldownContext.valueField) {
+      const valueLabel = getFieldLabel ? getFieldLabel(drilldownContext.valueField.field) : drilldownContext.valueField.label || drilldownContext.valueField.field;
+      parts.push(`Value: ${valueLabel}`);
+    }
+    
+    if (parts.length === 0) {
+      return 'All records';
+    }
+    
+    return parts.join(' | ');
+  }, [drilldownContext, getFieldLabel]);
+
+  return (
+    <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
+      {/* Header with back button */}
+      <div style={{ 
+        padding: '12px 16px', 
+        borderBottom: '1px solid #e5e7eb',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '12px',
+        background: '#f9fafb'
+      }}>
+        <button
+          onClick={onBack}
+          style={{
+            padding: '6px 12px',
+            backgroundColor: '#3b82f6',
+            color: 'white',
+            border: 'none',
+            borderRadius: '6px',
+            cursor: 'pointer',
+            fontSize: '14px',
+            fontWeight: '500',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px'
+          }}
+        >
+          ← Back to Pivot Table
+        </button>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: '16px', fontWeight: '600', marginBottom: '4px' }}>
+            Drilldown Records
+          </div>
+          <div style={{ fontSize: '12px', color: '#6b7280' }}>
+            {contextDescription}
+          </div>
+        </div>
+        <div style={{ fontSize: '14px', color: '#6b7280' }}>
+          {drilldownData.length} record{drilldownData.length !== 1 ? 's' : ''}
+        </div>
+      </div>
+
+      {/* Table */}
+      <div style={{ flex: 1, overflow: 'auto' }}>
+        <table style={{ 
+          width: '100%', 
+          borderCollapse: 'collapse',
+          fontSize: '13px'
+        }}>
+          <thead style={{ 
+            position: 'sticky', 
+            top: 0, 
+            background: '#f3f4f6', 
+            zIndex: 10 
+          }}>
+            <tr>
+              <th style={{ 
+                padding: '8px 12px', 
+                textAlign: 'left', 
+                border: '1px solid #d1d5db',
+                fontWeight: '600',
+                background: '#f3f4f6'
+              }}>
+                #
+              </th>
+              {allFields.map(field => (
+                <th 
+                  key={field}
+                  style={{ 
+                    padding: '8px 12px', 
+                    textAlign: 'left', 
+                    border: '1px solid #d1d5db',
+                    fontWeight: '600',
+                    background: '#f3f4f6',
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  {getFieldLabel ? getFieldLabel(field) : field}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {paginatedData.map((item, idx) => (
+              <tr 
+                key={idx}
+                style={{ 
+                  backgroundColor: idx % 2 === 0 ? 'white' : '#f9fafb'
+                }}
+              >
+                <td style={{ 
+                  padding: '8px 12px', 
+                  border: '1px solid #d1d5db',
+                  color: '#6b7280',
+                  fontWeight: '500'
+                }}>
+                  {startIndex + idx + 1}
+                </td>
+                {allFields.map(field => {
+                  const fieldValue = getFieldValue(item, field);
+                  // Try to find column from reportData for proper formatting
+                  const column = reportData?.columns?.find(col => col.key === field);
+                  const formattedValue = formatCellValue && column 
+                    ? formatCellValue(fieldValue, column)
+                    : (fieldValue != null && fieldValue !== '' ? String(fieldValue) : '-');
+                  
+                  return (
+                    <td 
+                      key={field}
+                      style={{ 
+                        padding: '8px 12px', 
+                        border: '1px solid #d1d5db'
+                      }}
+                    >
+                      {formattedValue}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Pagination */}
+      <div style={{ 
+        padding: '12px 16px', 
+        borderTop: '1px solid #e5e7eb',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        background: '#f9fafb'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <span style={{ fontSize: '14px', color: '#6b7280' }}>
+            Showing {startIndex + 1} to {Math.min(endIndex, drilldownData.length)} of {drilldownData.length} records
+          </span>
+          <select
+            value={pageSize}
+            onChange={(e) => onPageSizeChange(Number(e.target.value))}
+            style={{
+              padding: '4px 8px',
+              border: '1px solid #d1d5db',
+              borderRadius: '4px',
+              fontSize: '13px'
+            }}
+          >
+            <option value={25}>25 per page</option>
+            <option value={50}>50 per page</option>
+            <option value={100}>100 per page</option>
+            <option value={200}>200 per page</option>
+          </select>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <button
+            onClick={() => onPageChange(1)}
+            disabled={page === 1}
+            style={{
+              padding: '6px 12px',
+              border: '1px solid #d1d5db',
+              borderRadius: '4px',
+              cursor: page === 1 ? 'not-allowed' : 'pointer',
+              backgroundColor: page === 1 ? '#f3f4f6' : 'white',
+              color: page === 1 ? '#9ca3af' : '#374151'
+            }}
+          >
+            First
+          </button>
+          <button
+            onClick={() => onPageChange(page - 1)}
+            disabled={page === 1}
+            style={{
+              padding: '6px 12px',
+              border: '1px solid #d1d5db',
+              borderRadius: '4px',
+              cursor: page === 1 ? 'not-allowed' : 'pointer',
+              backgroundColor: page === 1 ? '#f3f4f6' : 'white',
+              color: page === 1 ? '#9ca3af' : '#374151'
+            }}
+          >
+            Previous
+          </button>
+          <span style={{ fontSize: '14px', padding: '0 8px' }}>
+            Page {page} of {totalPages}
+          </span>
+          <button
+            onClick={() => onPageChange(page + 1)}
+            disabled={page >= totalPages}
+            style={{
+              padding: '6px 12px',
+              border: '1px solid #d1d5db',
+              borderRadius: '4px',
+              cursor: page >= totalPages ? 'not-allowed' : 'pointer',
+              backgroundColor: page >= totalPages ? '#f3f4f6' : 'white',
+              color: page >= totalPages ? '#9ca3af' : '#374151'
+            }}
+          >
+            Next
+          </button>
+          <button
+            onClick={() => onPageChange(totalPages)}
+            disabled={page >= totalPages}
+            style={{
+              padding: '6px 12px',
+              border: '1px solid #d1d5db',
+              borderRadius: '4px',
+              cursor: page >= totalPages ? 'not-allowed' : 'pointer',
+              backgroundColor: page >= totalPages ? '#f3f4f6' : 'white',
+              color: page >= totalPages ? '#9ca3af' : '#374151'
+            }}
+          >
+            Last
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLabel, isFullScreen = false, onCellDrilldown }) => {
   // Pagination state for columns
   const [currentColumnPage, setCurrentColumnPage] = useState(0);
   const COLUMNS_PER_PAGE = 20; // Number of columns to show per page
+  
+  // Row pagination state
+  const [currentRowPage, setCurrentRowPage] = useState(0);
+  const ROWS_PER_PAGE = 100; // Number of rows to show per page
   
   // State for editing column headers
   const [editingHeader, setEditingHeader] = useState(null); // { type: 'value'|'columnField'|'columnItem'|'rowField', index: 0, colKey?: string }
@@ -6822,10 +7892,33 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLa
     return pivotConfig.columnWidths || {};
   });
   
-  // Sync column widths when pivotConfig changes
+  // Ref to track if we're updating from within this component (to prevent infinite loop)
+  const isInternalUpdateRef = useRef(false);
+  const prevColumnWidthsRef = useRef(pivotConfig.columnWidths || {});
+  
+  // Sync column widths when pivotConfig changes (only if changed externally)
   useEffect(() => {
+    if (isInternalUpdateRef.current) {
+      // We just updated it ourselves, skip syncing
+      isInternalUpdateRef.current = false;
+      prevColumnWidthsRef.current = pivotConfig.columnWidths || {};
+      return;
+    }
+    
     if (pivotConfig.columnWidths) {
-      setColumnWidths(pivotConfig.columnWidths);
+      // Only update if the values actually changed (compare with previous)
+      const prev = prevColumnWidthsRef.current;
+      const current = pivotConfig.columnWidths;
+      
+      const currentKeys = Object.keys(prev).sort().join(',');
+      const newKeys = Object.keys(current).sort().join(',');
+      const valuesChanged = currentKeys !== newKeys || 
+        Object.keys(current).some(key => prev[key] !== current[key]);
+      
+      if (valuesChanged) {
+        setColumnWidths(current);
+        prevColumnWidthsRef.current = current;
+      }
     }
   }, [pivotConfig.columnWidths]);
   
@@ -6892,21 +7985,53 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLa
       scaledValue = value / valueField.scaleFactor;
     }
     
+    // Check if value is zero and hideZeros is enabled
+    const isZero = typeof scaledValue === 'number' && scaledValue === 0;
+    if (isZero && valueField.hideZeros) {
+      return ''; // Return blank for zero values
+    }
+    
+    // Determine locale based on numberFormat setting
+    const locale = (valueField.numberFormat || 'indian') === 'indian' ? 'en-IN' : 'en-US';
+    
+    // Determine decimal places to use
+    const decimalPlaces = valueField.decimalPlaces !== undefined && valueField.decimalPlaces !== null 
+      ? valueField.decimalPlaces 
+      : null;
+    
     if (valueField.aggregation === 'count' || valueField.aggregation === 'distinctCount') {
-      return Math.round(scaledValue).toLocaleString('en-IN');
+      // Count aggregations always show 0 decimal places
+      // Check again for zero after rounding (in case hideZeros is enabled)
+      const roundedValue = Math.round(scaledValue);
+      if (roundedValue === 0 && valueField.hideZeros) {
+        return '';
+      }
+      return roundedValue.toLocaleString(locale);
     }
     if (typeof value === 'number') {
       if (valueField.format === 'currency') {
-        return `₹${scaledValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        const places = decimalPlaces !== null ? decimalPlaces : 2;
+        return `₹${scaledValue.toLocaleString(locale, { 
+          minimumFractionDigits: places, 
+          maximumFractionDigits: places 
+        })}`;
       }
       if (valueField.format === 'percentage') {
-        return `${scaledValue.toFixed(2)}%`;
+        const places = decimalPlaces !== null ? decimalPlaces : 2;
+        return `${scaledValue.toFixed(places)}%`;
       }
-      // For scale factor, always show 2 decimal places
+      // For number format, use decimal places if specified
+      if (decimalPlaces !== null) {
+        return scaledValue.toLocaleString(locale, { 
+          minimumFractionDigits: decimalPlaces, 
+          maximumFractionDigits: decimalPlaces 
+        });
+      }
+      // Default behavior: for scale factor, show 2 decimal places; otherwise 0-2
       if (valueField.scaleFactor && valueField.scaleFactor > 0) {
-        return scaledValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        return scaledValue.toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
       }
-      return scaledValue.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+      return scaledValue.toLocaleString(locale, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
     }
     return value;
   };
@@ -6954,6 +8079,7 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLa
     
     // Save widths to pivotConfig
     setColumnWidths(currentWidths => {
+      isInternalUpdateRef.current = true; // Mark as internal update
       const updatedConfig = { ...pivotConfig };
       updatedConfig.columnWidths = { ...currentWidths };
       setPivotConfig(updatedConfig);
@@ -7095,6 +8221,7 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLa
       };
       
       // Save to pivotConfig
+      isInternalUpdateRef.current = true; // Mark as internal update
       const updatedConfig = { ...pivotConfig };
       updatedConfig.columnWidths = { ...newWidths };
       setPivotConfig(updatedConfig);
@@ -7183,18 +8310,41 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLa
 
   // Calculate pagination (even if pivotData is null, to avoid hook conditional call)
   const totalColumns = pivotData?.colKeys?.length || 0;
-  const totalPages = Math.ceil(totalColumns / COLUMNS_PER_PAGE);
-  const startIndex = currentColumnPage * COLUMNS_PER_PAGE;
-  const endIndex = Math.min(startIndex + COLUMNS_PER_PAGE, totalColumns);
-  const visibleColKeys = pivotData?.colKeys?.slice(startIndex, endIndex) || [];
+  const totalColumnPages = Math.ceil(totalColumns / COLUMNS_PER_PAGE);
+  const columnStartIndex = currentColumnPage * COLUMNS_PER_PAGE;
+  const columnEndIndex = Math.min(columnStartIndex + COLUMNS_PER_PAGE, totalColumns);
+  const visibleColKeys = pivotData?.colKeys?.slice(columnStartIndex, columnEndIndex) || [];
+
+  // Row pagination
+  const totalRows = pivotData?.rowKeys?.length || 0;
+  const totalRowPages = Math.ceil(totalRows / ROWS_PER_PAGE);
+  const rowStartIndex = currentRowPage * ROWS_PER_PAGE;
+  const rowEndIndex = Math.min(rowStartIndex + ROWS_PER_PAGE, totalRows);
+  const visibleRowKeys = pivotData?.rowKeys?.slice(rowStartIndex, rowEndIndex) || [];
 
   // Reset to first page if current page is out of bounds
   // This hook must be called unconditionally (before any early returns)
   useEffect(() => {
-    if (totalPages > 0 && currentColumnPage >= totalPages) {
+    if (totalColumnPages > 0 && currentColumnPage >= totalColumnPages) {
       setCurrentColumnPage(0);
     }
-  }, [totalPages, currentColumnPage]);
+  }, [totalColumnPages, currentColumnPage]);
+
+  useEffect(() => {
+    if (totalRowPages > 0 && currentRowPage >= totalRowPages) {
+      setCurrentRowPage(0);
+    }
+  }, [totalRowPages, currentRowPage]);
+
+  // Reset row pagination when pivot data changes (which happens when config changes)
+  const prevPivotDataRef = useRef(pivotData);
+  useEffect(() => {
+    // Only reset if pivotData actually changed (new data generated)
+    if (prevPivotDataRef.current !== pivotData && pivotData) {
+      setCurrentRowPage(0);
+      prevPivotDataRef.current = pivotData;
+    }
+  }, [pivotData]);
 
   if (!pivotData) {
     return (
@@ -7210,8 +8360,8 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLa
     );
   }
 
-  // Pagination Controls Component
-  const PaginationControls = ({ position }) => (
+  // Column Pagination Controls Component
+  const ColumnPaginationControls = ({ position }) => (
     totalColumns > COLUMNS_PER_PAGE && (
       <div style={{
         display: 'flex',
@@ -7229,7 +8379,7 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLa
           color: '#475569',
           fontWeight: '500'
         }}>
-          Showing columns {startIndex + 1} - {endIndex} of {totalColumns}
+          Showing columns {columnStartIndex + 1} - {columnEndIndex} of {totalColumns}
         </div>
         <div style={{
           display: 'flex',
@@ -7280,18 +8430,18 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLa
             minWidth: '100px',
             textAlign: 'center'
           }}>
-            Page {currentColumnPage + 1} of {totalPages}
+            Page {currentColumnPage + 1} of {totalColumnPages}
           </div>
           <button
-            onClick={() => setCurrentColumnPage(prev => Math.min(totalPages - 1, prev + 1))}
-            disabled={currentColumnPage >= totalPages - 1}
+            onClick={() => setCurrentColumnPage(prev => Math.min(totalColumnPages - 1, prev + 1))}
+            disabled={currentColumnPage >= totalColumnPages - 1}
             style={{
               padding: '6px 12px',
               border: '1px solid #cbd5e1',
               borderRadius: '6px',
-              background: currentColumnPage >= totalPages - 1 ? '#f1f5f9' : '#ffffff',
-              color: currentColumnPage >= totalPages - 1 ? '#94a3b8' : '#475569',
-              cursor: currentColumnPage >= totalPages - 1 ? 'not-allowed' : 'pointer',
+              background: currentColumnPage >= totalColumnPages - 1 ? '#f1f5f9' : '#ffffff',
+              color: currentColumnPage >= totalColumnPages - 1 ? '#94a3b8' : '#475569',
+              cursor: currentColumnPage >= totalColumnPages - 1 ? 'not-allowed' : 'pointer',
               fontSize: '13px',
               fontWeight: '500',
               display: 'flex',
@@ -7300,13 +8450,122 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLa
               transition: 'all 0.2s ease'
             }}
             onMouseEnter={(e) => {
-              if (currentColumnPage < totalPages - 1) {
+              if (currentColumnPage < totalColumnPages - 1) {
                 e.currentTarget.style.background = '#f8fafc';
                 e.currentTarget.style.borderColor = '#94a3b8';
               }
             }}
             onMouseLeave={(e) => {
-              if (currentColumnPage < totalPages - 1) {
+              if (currentColumnPage < totalColumnPages - 1) {
+                e.currentTarget.style.background = '#ffffff';
+                e.currentTarget.style.borderColor = '#cbd5e1';
+              }
+            }}
+          >
+            Next
+            <span className="material-icons" style={{ fontSize: '18px' }}>chevron_right</span>
+          </button>
+        </div>
+      </div>
+    )
+  );
+
+  // Row Pagination Controls Component
+  const RowPaginationControls = () => (
+    totalRows > ROWS_PER_PAGE && (
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        padding: '12px 16px',
+        background: '#f0f9ff',
+        border: '1px solid #bae6fd',
+        borderTop: '1px solid #bae6fd',
+        fontSize: '13px'
+      }}>
+        <div style={{
+          fontSize: '13px',
+          color: '#475569',
+          fontWeight: '500'
+        }}>
+          Showing rows {rowStartIndex + 1} - {rowEndIndex} of {totalRows}
+        </div>
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px'
+        }}>
+          <button
+            onClick={() => setCurrentRowPage(prev => Math.max(0, prev - 1))}
+            disabled={currentRowPage === 0}
+            style={{
+              padding: '6px 12px',
+              border: '1px solid #cbd5e1',
+              borderRadius: '6px',
+              background: currentRowPage === 0 ? '#f1f5f9' : '#ffffff',
+              color: currentRowPage === 0 ? '#94a3b8' : '#475569',
+              cursor: currentRowPage === 0 ? 'not-allowed' : 'pointer',
+              fontSize: '13px',
+              fontWeight: '500',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              transition: 'all 0.2s ease'
+            }}
+            onMouseEnter={(e) => {
+              if (currentRowPage > 0) {
+                e.currentTarget.style.background = '#f8fafc';
+                e.currentTarget.style.borderColor = '#94a3b8';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (currentRowPage > 0) {
+                e.currentTarget.style.background = '#ffffff';
+                e.currentTarget.style.borderColor = '#cbd5e1';
+              }
+            }}
+          >
+            <span className="material-icons" style={{ fontSize: '18px' }}>chevron_left</span>
+            Previous
+          </button>
+          <div style={{
+            padding: '6px 12px',
+            fontSize: '13px',
+            color: '#64748b',
+            fontWeight: '500',
+            background: '#ffffff',
+            border: '1px solid #e2e8f0',
+            borderRadius: '6px',
+            minWidth: '100px',
+            textAlign: 'center'
+          }}>
+            Page {currentRowPage + 1} of {totalRowPages}
+          </div>
+          <button
+            onClick={() => setCurrentRowPage(prev => Math.min(totalRowPages - 1, prev + 1))}
+            disabled={currentRowPage >= totalRowPages - 1}
+            style={{
+              padding: '6px 12px',
+              border: '1px solid #cbd5e1',
+              borderRadius: '6px',
+              background: currentRowPage >= totalRowPages - 1 ? '#f1f5f9' : '#ffffff',
+              color: currentRowPage >= totalRowPages - 1 ? '#94a3b8' : '#475569',
+              cursor: currentRowPage >= totalRowPages - 1 ? 'not-allowed' : 'pointer',
+              fontSize: '13px',
+              fontWeight: '500',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              transition: 'all 0.2s ease'
+            }}
+            onMouseEnter={(e) => {
+              if (currentRowPage < totalRowPages - 1) {
+                e.currentTarget.style.background = '#f8fafc';
+                e.currentTarget.style.borderColor = '#94a3b8';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (currentRowPage < totalRowPages - 1) {
                 e.currentTarget.style.background = '#ffffff';
                 e.currentTarget.style.borderColor = '#cbd5e1';
               }
@@ -7321,22 +8580,32 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLa
   );
 
   return (
-    <div>
+    <div style={{
+      width: '100%',
+      height: isFullScreen ? '100%' : 'auto',
+      display: 'flex',
+      flexDirection: 'column'
+    }}>
       {/* Pagination Controls - Top */}
-      <PaginationControls position="top" />
+      <ColumnPaginationControls position="top" />
       
       <div style={{
         overflowX: 'auto',
         overflowY: 'auto',
-        maxHeight: 'calc(100vh - 300px)', // Allow vertical scrolling
+        maxHeight: isFullScreen ? '100%' : 'calc(100vh - 300px)', // Full height in full screen mode
+        height: isFullScreen ? '100%' : 'auto',
         border: '1px solid #d1d5db',
         background: 'white',
-        borderTop: totalColumns > COLUMNS_PER_PAGE ? 'none' : '1px solid #d1d5db'
+        borderTop: totalColumns > COLUMNS_PER_PAGE ? 'none' : '1px solid #d1d5db',
+        width: '100%',
+        flex: isFullScreen ? 1 : 'none'
       }}>
       <table style={{
         width: '100%',
+        minWidth: '100%',
         borderCollapse: 'collapse',
-        fontSize: '13px'
+        fontSize: '13px',
+        tableLayout: 'auto'
       }}>
         <thead>
           {/* Column Headers */}
@@ -7568,7 +8837,7 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLa
                       display: 'block',
                       marginTop: '2px'
                     }}>
-                      (Page {currentColumnPage + 1} of {totalPages})
+                      (Page {currentColumnPage + 1} of {totalColumnPages})
                     </span>
                   )}
                 </th>
@@ -7611,6 +8880,12 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLa
                     <th
                       key={`item-${colKey}`}
                       colSpan={pivotConfig.values.length}
+                      onClick={(e) => {
+                        // Only trigger drilldown if clicking directly on the th (not on child elements like edit span or resize handle)
+                        if (e.target === e.currentTarget && !editingHeader && onCellDrilldown) {
+                          onCellDrilldown(null, colKey, null);
+                        }
+                      }}
                       style={{
                         padding: '6px 8px',
                         border: '1px solid #d1d5db',
@@ -7620,14 +8895,22 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLa
                         position: 'relative',
                         width: `${totalWidth}px`,
                         minWidth: `${totalWidth}px`,
-                        maxWidth: `${totalWidth}px`
+                        maxWidth: `${totalWidth}px`,
+                        cursor: onCellDrilldown && !editingHeader ? 'pointer' : 'default',
+                        transition: onCellDrilldown && !editingHeader ? 'background-color 0.2s' : 'none'
                       }}
                       onMouseEnter={(e) => {
                         // Don't interfere with child hover events
-                        if (e.target === e.currentTarget) {
-                          e.stopPropagation();
+                        if (e.target === e.currentTarget && onCellDrilldown && !editingHeader) {
+                          e.currentTarget.style.backgroundColor = '#dbeafe';
                         }
                       }}
+                      onMouseLeave={(e) => {
+                        if (e.target === e.currentTarget && onCellDrilldown && !editingHeader) {
+                          e.currentTarget.style.backgroundColor = '#f3f4f6';
+                        }
+                      }}
+                      title={onCellDrilldown && !editingHeader ? 'Click empty area to drill down into records' : ''}
                     >
                       {editingHeader && editingHeader.type === 'columnItem' && editingHeader.colKey === colKey ? (
                         <input
@@ -8104,9 +9387,12 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLa
         <tbody>
           {/* Data Rows with Hierarchical Grouping */}
           {(() => {
+            // Use only visible row keys for pagination
+            const rowKeysToRender = visibleRowKeys.length > 0 ? visibleRowKeys : pivotData.rowKeys;
+            
             // Group rows by first row field (for hierarchical display like Excel)
             const groupedRows = new Map();
-            pivotData.rowKeys.forEach(rowKey => {
+            rowKeysToRender.forEach(rowKey => {
               const rowValues = splitKey(rowKey);
               const firstLevelKey = rowValues[0] || 'Total';
               
@@ -8276,6 +9562,11 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLa
                         {isFirstRowInGroup && (
                           <td
                             rowSpan={groupRowCount}
+                            onClick={() => {
+                              if (onCellDrilldown) {
+                                onCellDrilldown(rowKey, null, null);
+                              }
+                            }}
                             style={{
                               padding: '6px 8px',
                               border: '1px solid #d1d5db',
@@ -8287,8 +9578,23 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLa
                               zIndex: 11,
                               width: `${getColumnWidth('row', null, null, 0)}px`,
                               minWidth: `${getColumnWidth('row', null, null, 0)}px`,
-                              maxWidth: `${getColumnWidth('row', null, null, 0)}px`
+                              maxWidth: `${getColumnWidth('row', null, null, 0)}px`,
+                              cursor: onCellDrilldown ? 'pointer' : 'default',
+                              transition: onCellDrilldown ? 'background-color 0.2s' : 'none'
                             }}
+                            onMouseEnter={(e) => {
+                              if (onCellDrilldown) {
+                                e.currentTarget.style.backgroundColor = '#e0f2fe';
+                                e.currentTarget.style.textDecoration = 'underline';
+                              }
+                            }}
+                            onMouseLeave={(e) => {
+                              if (onCellDrilldown) {
+                                e.currentTarget.style.backgroundColor = '#fafafa';
+                                e.currentTarget.style.textDecoration = 'none';
+                              }
+                            }}
+                            title={onCellDrilldown ? 'Click to drill down into records' : ''}
                           >
                             {rowValues[0]}
                           </td>
@@ -8303,6 +9609,11 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLa
                           return (
                             <td
                               key={`row-label-${idx + 1}`}
+                              onClick={() => {
+                                if (onCellDrilldown) {
+                                  onCellDrilldown(rowKey, null, null);
+                                }
+                              }}
                               style={{
                                 padding: '6px 8px',
                                 border: '1px solid #d1d5db',
@@ -8314,8 +9625,23 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLa
                                 zIndex: 11 + idx + 1,
                                 width: `${rowWidth}px`,
                                 minWidth: `${rowWidth}px`,
-                                maxWidth: `${rowWidth}px`
+                                maxWidth: `${rowWidth}px`,
+                                cursor: onCellDrilldown ? 'pointer' : 'default',
+                                transition: onCellDrilldown ? 'background-color 0.2s' : 'none'
                               }}
+                              onMouseEnter={(e) => {
+                                if (onCellDrilldown) {
+                                  e.currentTarget.style.backgroundColor = '#e0f2fe';
+                                  e.currentTarget.style.textDecoration = 'underline';
+                                }
+                              }}
+                              onMouseLeave={(e) => {
+                                if (onCellDrilldown) {
+                                  e.currentTarget.style.backgroundColor = 'white';
+                                  e.currentTarget.style.textDecoration = 'none';
+                                }
+                              }}
+                              title={onCellDrilldown ? 'Click to drill down into records' : ''}
                             >
                               <span style={{ marginRight: '4px', color: '#94a3b8' }}>└</span>
                               {val}
@@ -8326,6 +9652,11 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLa
                     ) : (
                       /* Single row field - show each value in its own row (no rowspan) */
                       <td
+                        onClick={() => {
+                          if (onCellDrilldown) {
+                            onCellDrilldown(rowKey, null, null);
+                          }
+                        }}
                         style={{
                           padding: '6px 8px',
                           border: '1px solid #d1d5db',
@@ -8336,8 +9667,23 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLa
                           zIndex: 11,
                           width: `${getColumnWidth('row', null, null, 0)}px`,
                           minWidth: `${getColumnWidth('row', null, null, 0)}px`,
-                          maxWidth: `${getColumnWidth('row', null, null, 0)}px`
+                          maxWidth: `${getColumnWidth('row', null, null, 0)}px`,
+                          cursor: onCellDrilldown ? 'pointer' : 'default',
+                          transition: onCellDrilldown ? 'background-color 0.2s' : 'none'
                         }}
+                        onMouseEnter={(e) => {
+                          if (onCellDrilldown) {
+                            e.currentTarget.style.backgroundColor = '#e0f2fe';
+                            e.currentTarget.style.textDecoration = 'underline';
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (onCellDrilldown) {
+                            e.currentTarget.style.backgroundColor = '#fafafa';
+                            e.currentTarget.style.textDecoration = 'none';
+                          }
+                        }}
+                        title={onCellDrilldown ? 'Click to drill down into records' : ''}
                       >
                         {rowValues[0]}
                       </td>
@@ -8346,9 +9692,17 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLa
                     {visibleColKeys.map(colKey => {
                       return pivotConfig.values.map((valueField, vIdx) => {
                         const columnWidth = getColumnWidth('value', colKey, vIdx, null);
+                        const cellValue = pivotData.data[rowKey]?.[colKey]?.[valueField.field];
+                        const hasData = cellValue != null && cellValue !== 0 && cellValue !== '';
+                        
                         return (
                           <td
                             key={`cell-${rowKey}-${colKey}-${vIdx}`}
+                            onClick={() => {
+                              if (onCellDrilldown && hasData) {
+                                onCellDrilldown(rowKey, colKey, valueField);
+                              }
+                            }}
                             style={{
                               padding: '6px 8px',
                               border: '1px solid #d1d5db',
@@ -8356,10 +9710,26 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLa
                               fontFamily: 'monospace',
                               width: `${columnWidth}px`,
                               minWidth: `${columnWidth}px`,
-                              maxWidth: `${columnWidth}px`
+                              maxWidth: `${columnWidth}px`,
+                              cursor: hasData && onCellDrilldown ? 'pointer' : 'default',
+                              backgroundColor: 'transparent',
+                              transition: hasData && onCellDrilldown ? 'background-color 0.2s' : 'none'
                             }}
+                            onMouseEnter={(e) => {
+                              if (hasData && onCellDrilldown) {
+                                e.currentTarget.style.backgroundColor = '#e0f2fe';
+                                e.currentTarget.style.textDecoration = 'underline';
+                              }
+                            }}
+                            onMouseLeave={(e) => {
+                              if (hasData && onCellDrilldown) {
+                                e.currentTarget.style.backgroundColor = 'transparent';
+                                e.currentTarget.style.textDecoration = 'none';
+                              }
+                            }}
+                            title={hasData && onCellDrilldown ? 'Click to drill down into records' : ''}
                           >
-                            {formatValue(pivotData.data[rowKey]?.[colKey]?.[valueField.field], valueField)}
+                            {formatValue(cellValue, valueField)}
                           </td>
                         );
                       });
@@ -8385,6 +9755,25 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLa
               }
             });
           })()}
+          {/* Row Pagination Info - shown after visible rows */}
+          {totalRows > ROWS_PER_PAGE && (
+            <tr>
+              <td
+                colSpan={pivotConfig.rows.length + (pivotConfig.values.length * visibleColKeys.length) + (pivotConfig.values.length > 1 || Array.from(pivotData.colKeys).length > 1 ? pivotConfig.values.length : 0)}
+                style={{
+                  padding: '12px',
+                  textAlign: 'center',
+                  background: '#f0f9ff',
+                  border: '1px solid #bae6fd',
+                  color: '#475569',
+                  fontSize: '13px',
+                  fontWeight: '500'
+                }}
+              >
+                Showing rows {rowStartIndex + 1} - {rowEndIndex} of {totalRows} (Page {currentRowPage + 1} of {totalRowPages})
+              </td>
+            </tr>
+          )}
           {/* Grand Total Row */}
           {pivotData.rowKeys.length > 0 && (
             <tr style={{ background: '#f3f4f6', fontWeight: '600' }}>
@@ -8445,7 +9834,8 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLa
     </div>
 
       {/* Pagination Controls - Bottom */}
-      <PaginationControls position="bottom" />
+      <ColumnPaginationControls position="bottom" />
+      <RowPaginationControls />
     </div>
   );
 };
@@ -8913,6 +10303,9 @@ const FieldConfigurationModal = ({ fieldConfig, pivotConfig, setPivotConfig, onC
   const [filterSearch, setFilterSearch] = useState('');
   const [dateGrouping, setDateGrouping] = useState(fieldConfig?.field?.dateGrouping || 'day');
   const [scaleFactor, setScaleFactor] = useState(fieldConfig?.field?.scaleFactor || '');
+  const [decimalPlaces, setDecimalPlaces] = useState(fieldConfig?.field?.decimalPlaces !== undefined ? fieldConfig.field.decimalPlaces : '');
+  const [hideZeros, setHideZeros] = useState(fieldConfig?.field?.hideZeros !== undefined ? fieldConfig.field.hideZeros : true);
+  const [numberFormat, setNumberFormat] = useState(fieldConfig?.field?.numberFormat || 'indian');
 
   // Get unique values for filter field
   const availableFilterValues = useMemo(() => {
@@ -9088,6 +10481,21 @@ const FieldConfigurationModal = ({ fieldConfig, pivotConfig, setPivotConfig, onC
       } else {
         delete field.scaleFactor;
       }
+      // Save decimal places if provided (remove if empty)
+      if (decimalPlaces !== '' && decimalPlaces !== null && decimalPlaces !== undefined) {
+        const places = parseInt(decimalPlaces);
+        if (!isNaN(places) && places >= 0 && places <= 10) {
+          field.decimalPlaces = places;
+        } else {
+          delete field.decimalPlaces;
+        }
+      } else {
+        delete field.decimalPlaces;
+      }
+      // Save hideZeros setting
+      field.hideZeros = hideZeros;
+      // Save numberFormat setting
+      field.numberFormat = numberFormat;
     } else if (fieldConfig.area === 'filters') {
       field.values = filterValues;
     }
@@ -9264,6 +10672,202 @@ const FieldConfigurationModal = ({ fieldConfig, pivotConfig, setPivotConfig, onC
                 }}>
                   Divide all values by this number. Example: 12349 ÷ 1000 = 12.35
                 </p>
+              </div>
+
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{
+                  display: 'block',
+                  fontSize: '13px',
+                  fontWeight: '500',
+                  color: '#475569',
+                  marginBottom: '8px'
+                }}>
+                  Number of Decimal Places (optional)
+                </label>
+                <input
+                  type="number"
+                  value={decimalPlaces}
+                  onChange={(e) => setDecimalPlaces(e.target.value)}
+                  placeholder="e.g., 0, 2, 4"
+                  min="0"
+                  max="10"
+                  step="1"
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                    outline: 'none'
+                  }}
+                />
+                <p style={{
+                  marginTop: '6px',
+                  fontSize: '12px',
+                  color: '#64748b',
+                  marginBottom: 0
+                }}>
+                  Number of decimal places to display. Leave empty for default formatting.
+                </p>
+              </div>
+
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                  fontSize: '13px',
+                  fontWeight: '500',
+                  color: '#475569',
+                  cursor: 'pointer'
+                }}>
+                  <input
+                    type="checkbox"
+                    checked={hideZeros}
+                    onChange={(e) => setHideZeros(e.target.checked)}
+                    style={{
+                      width: '18px',
+                      height: '18px',
+                      cursor: 'pointer'
+                    }}
+                  />
+                  <span>Don't show zero values</span>
+                </label>
+                <p style={{
+                  marginTop: '6px',
+                  fontSize: '12px',
+                  color: '#64748b',
+                  marginBottom: 0,
+                  marginLeft: '28px'
+                }}>
+                  Zero values will be displayed as blank instead of "0"
+                </p>
+              </div>
+
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{
+                  display: 'block',
+                  fontSize: '13px',
+                  fontWeight: '500',
+                  color: '#475569',
+                  marginBottom: '12px'
+                }}>
+                  Number Format
+                </label>
+                <div style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '10px'
+                }}>
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '10px 12px',
+                    background: '#fff',
+                    borderRadius: '6px',
+                    border: `2px solid ${numberFormat === 'indian' ? '#8b5cf6' : '#e2e8f0'}`,
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease'
+                  }}
+                    onClick={() => setNumberFormat('indian')}
+                    onMouseEnter={(e) => {
+                      if (numberFormat !== 'indian') {
+                        e.currentTarget.style.background = '#f1f5f9';
+                        e.currentTarget.style.borderColor = '#cbd5e1';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (numberFormat !== 'indian') {
+                        e.currentTarget.style.background = '#fff';
+                        e.currentTarget.style.borderColor = '#e2e8f0';
+                      }
+                    }}
+                  >
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', flex: 1 }}>
+                      <span style={{
+                        fontSize: '14px',
+                        fontWeight: '600',
+                        color: '#1e293b'
+                      }}>
+                        Lakhs & Crores (Indian)
+                      </span>
+                      <span style={{
+                        fontSize: '12px',
+                        color: '#64748b'
+                      }}>
+                        Example: 1,00,000 (1 Lakh), 1,00,00,000 (1 Crore)
+                      </span>
+                    </div>
+                    <input
+                      type="radio"
+                      name={`numberFormat-${fieldConfig.index}`}
+                      checked={numberFormat === 'indian'}
+                      onChange={() => setNumberFormat('indian')}
+                      style={{
+                        width: '18px',
+                        height: '18px',
+                        cursor: 'pointer',
+                        accentColor: '#8b5cf6',
+                        flexShrink: 0
+                      }}
+                    />
+                  </div>
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '10px 12px',
+                    background: '#fff',
+                    borderRadius: '6px',
+                    border: `2px solid ${numberFormat === 'international' ? '#8b5cf6' : '#e2e8f0'}`,
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease'
+                  }}
+                    onClick={() => setNumberFormat('international')}
+                    onMouseEnter={(e) => {
+                      if (numberFormat !== 'international') {
+                        e.currentTarget.style.background = '#f1f5f9';
+                        e.currentTarget.style.borderColor = '#cbd5e1';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (numberFormat !== 'international') {
+                        e.currentTarget.style.background = '#fff';
+                        e.currentTarget.style.borderColor = '#e2e8f0';
+                      }
+                    }}
+                  >
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', flex: 1 }}>
+                      <span style={{
+                        fontSize: '14px',
+                        fontWeight: '600',
+                        color: '#1e293b'
+                      }}>
+                        Millions & Billions (International)
+                      </span>
+                      <span style={{
+                        fontSize: '12px',
+                        color: '#64748b'
+                      }}>
+                        Example: 100,000 (100K), 1,000,000 (1M)
+                      </span>
+                    </div>
+                    <input
+                      type="radio"
+                      name={`numberFormat-${fieldConfig.index}`}
+                      checked={numberFormat === 'international'}
+                      onChange={() => setNumberFormat('international')}
+                      style={{
+                        width: '18px',
+                        height: '18px',
+                        cursor: 'pointer',
+                        accentColor: '#8b5cf6',
+                        flexShrink: 0
+                      }}
+                    />
+                  </div>
+                </div>
               </div>
             </>
           )}
