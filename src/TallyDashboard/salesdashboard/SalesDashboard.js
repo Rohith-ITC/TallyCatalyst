@@ -209,6 +209,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   const [showCustomCardModal, setShowCustomCardModal] = useState(false);
   const [editingCardId, setEditingCardId] = useState(null);
   const [customCardChartTypes, setCustomCardChartTypes] = useState({});
+  const [customCardMapSubTypes, setCustomCardMapSubTypes] = useState({});
   const customCardsSectionRef = useRef(null);
   // Menu state for standard card options (keyed by card name)
   const [cardMenuAnchors, setCardMenuAnchors] = useState({});
@@ -1039,12 +1040,17 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
         // Set chart types for loaded cards
         const chartTypes = {};
+        const mapSubTypes = {};
         activeCards.forEach(card => {
           if (card.chartType) {
             chartTypes[card.id] = card.chartType;
           }
+          if (card.mapSubType) {
+            mapSubTypes[card.id] = card.mapSubType;
+          }
         });
         setCustomCardChartTypes(chartTypes);
+        setCustomCardMapSubTypes(mapSubTypes);
 
         console.log('✅ Loaded custom cards from backend:', activeCards.length, activeCards);
       } else {
@@ -10840,7 +10846,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   };
 
   // Helper function to render chart type menu for standard cards
-  const renderChartTypeMenu = (cardName, chartType, setChartType, options = ['bar', 'pie', 'treemap', 'line', 'table'], cardId = null) => {
+  const renderChartTypeMenu = (cardName, chartType, setChartType, options = ['bar', 'pie', 'treemap', 'line', 'table'], cardId = null, mapSubType = null, onMapSubTypeChange = null, currentMapType = null) => {
     const menuAnchor = cardMenuAnchors[cardName];
     const optionsMap = {
       'bar': 'Bar',
@@ -10988,6 +10994,53 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               </select>
             </div>
           </MenuItem>
+          {chartType === 'geoMap' && mapSubType && onMapSubTypeChange && (() => {
+            const currentMapSubType = mapSubType || 'choropleth';
+            return (
+              <MenuItem
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setCardMenuAnchors(prev => ({ ...prev, [cardName]: null }));
+                }}
+                style={{ cursor: 'default', padding: '8px 16px' }}
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '150px' }}>
+                  <label style={{ fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '4px' }}>
+                    Map Type
+                  </label>
+                  <select
+                    value={currentMapSubType}
+                    onChange={(e) => {
+                      onMapSubTypeChange(e.target.value);
+                      setCardMenuAnchors(prev => ({ ...prev, [cardName]: null }));
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                    style={{
+                      padding: '6px 12px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '6px',
+                      fontSize: '12px',
+                      background: 'white',
+                      color: '#374151',
+                      width: '100%',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {currentMapType === 'pincode' && (
+                      <>
+                        <option value="scatter">Scatter Map</option>
+                        <option value="choropleth">Choropleth Map</option>
+                      </>
+                    )}
+                    {(currentMapType === 'state' || currentMapType === 'country') && (
+                      <option value="choropleth">Choropleth Map</option>
+                    )}
+                  </select>
+                </div>
+              </MenuItem>
+            );
+          })()}
         </Menu>
       </>
     );
@@ -16034,58 +16087,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                           </h3>
                           {renderCardFilterBadges('region')}
                         </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          {selectedRegion === 'all' && (
-                            <select
-                              value={regionMapSubType}
-                              onChange={(e) => setRegionMapSubType(e.target.value)}
-                              style={{
-                                padding: '6px 12px',
-                                border: '1px solid #d1d5db',
-                                borderRadius: '6px',
-                                fontSize: '12px',
-                                background: 'white',
-                                color: '#374151'
-                              }}
-                            >
-                              <option value="choropleth">Choropleth Map</option>
-                            </select>
-                          )}
-                          {selectedRegion !== 'all' && (
-                            <select
-                              value={regionMapSubType}
-                              onChange={(e) => setRegionMapSubType(e.target.value)}
-                              style={{
-                                padding: '6px 12px',
-                                border: '1px solid #d1d5db',
-                                borderRadius: '6px',
-                                fontSize: '12px',
-                                background: 'white',
-                                color: '#374151'
-                              }}
-                            >
-                              <option value="scatter">Scatter Map</option>
-                              <option value="choropleth">Choropleth Map</option>
-                            </select>
-                          )}
-                          <select
-                            value={regionChartType}
-                            onChange={(e) => setRegionChartType(e.target.value)}
-                            style={{
-                              padding: '6px 12px',
-                              border: '1px solid #d1d5db',
-                              borderRadius: '6px',
-                              fontSize: '12px',
-                              background: 'white',
-                              color: '#374151'
-                            }}
-                          >
-                            <option value="bar">Bar</option>
-                            <option value="pie">Pie</option>
-                            <option value="treemap">Tree Map</option>
-                            <option value="line">Line</option>
-                            <option value="geoMap">Geographic Map</option>
-                          </select>
+                        <div style={{ display: 'flex', alignItems: 'center' }}>
+                          {renderChartTypeMenu('Sales by State', regionChartType, setRegionChartType, ['bar', 'pie', 'treemap', 'line', 'geoMap'], null, regionMapSubType, setRegionMapSubType, selectedRegion !== 'all' ? 'pincode' : 'state')}
                         </div>
                       </div>
                     }
@@ -16514,58 +16517,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                             </h3>
                             {renderCardFilterBadges('country')}
                           </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            {mapType === 'country' && (
-                              <select
-                                value={countryMapSubType}
-                                onChange={(e) => setCountryMapSubType(e.target.value)}
-                                style={{
-                                  padding: '6px 12px',
-                                  border: '1px solid #d1d5db',
-                                  borderRadius: '6px',
-                                  fontSize: '12px',
-                                  background: 'white',
-                                  color: '#374151'
-                                }}
-                              >
-                                <option value="choropleth">Choropleth Map</option>
-                              </select>
-                            )}
-                            {(mapType === 'state' || mapType === 'pincode') && (
-                              <select
-                                value={countryMapSubType}
-                                onChange={(e) => setCountryMapSubType(e.target.value)}
-                                style={{
-                                  padding: '6px 12px',
-                                  border: '1px solid #d1d5db',
-                                  borderRadius: '6px',
-                                  fontSize: '12px',
-                                  background: 'white',
-                                  color: '#374151'
-                                }}
-                              >
-                                {mapType === 'pincode' && <option value="scatter">Scatter Map</option>}
-                                {(mapType === 'state' || mapType === 'pincode') && <option value="choropleth">Choropleth Map</option>}
-                              </select>
-                            )}
-                            <select
-                              value={countryChartType}
-                              onChange={(e) => setCountryChartType(e.target.value)}
-                              style={{
-                                padding: '6px 12px',
-                                border: '1px solid #d1d5db',
-                                borderRadius: '6px',
-                                fontSize: '12px',
-                                background: 'white',
-                                color: '#374151'
-                              }}
-                            >
-                              <option value="bar">Bar</option>
-                              <option value="pie">Pie</option>
-                              <option value="treemap">Tree Map</option>
-                              <option value="line">Line</option>
-                              <option value="geoMap">Geographic Map</option>
-                            </select>
+                          <div style={{ display: 'flex', alignItems: 'center' }}>
+                            {renderChartTypeMenu('Sales by Country', countryChartType, setCountryChartType, ['bar', 'pie', 'treemap', 'line', 'geoMap'], null, countryMapSubType, setCountryMapSubType, mapType)}
                           </div>
                         </div>
                       }
@@ -20006,6 +19959,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     generateCustomCardData={generateCustomCardData}
                     chartType={customCardChartTypes[card.id] || card.chartType || 'bar'}
                     onChartTypeChange={(newType) => setCustomCardChartTypes(prev => ({ ...prev, [card.id]: newType }))}
+                    mapSubType={customCardMapSubTypes[card.id] || card.mapSubType || 'choropleth'}
+                    onMapSubTypeChange={(newSubType) => setCustomCardMapSubTypes(prev => ({ ...prev, [card.id]: newSubType }))}
                     onDelete={() => handleDeleteCustomCard(card.id)}
                     onEdit={handleEditCustomCard}
                     openTransactionRawData={openTransactionRawData}
@@ -24749,6 +24704,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                       generateCustomCardData={generateCustomCardData}
                       chartType={customCardChartTypes[card.id] || card.chartType || 'bar'}
                       onChartTypeChange={(newType) => setCustomCardChartTypes(prev => ({ ...prev, [card.id]: newType }))}
+                      mapSubType={customCardMapSubTypes[card.id] || card.mapSubType || 'choropleth'}
+                      onMapSubTypeChange={(newSubType) => setCustomCardMapSubTypes(prev => ({ ...prev, [card.id]: newSubType }))}
                       onDelete={() => handleDeleteCustomCard(card.id)}
                       onEdit={handleEditCustomCard}
                       openTransactionRawData={openTransactionRawData}
@@ -30760,6 +30717,8 @@ const CustomCard = React.memo(({
   generateCustomCardData,
   chartType,
   onChartTypeChange,
+  mapSubType,
+  onMapSubTypeChange,
   onDelete,
   onEdit,
   openTransactionRawData,
@@ -32154,6 +32113,84 @@ const CustomCard = React.memo(({
               </div>
             </MenuItem>
           )}
+          {chartType === 'geoMap' && onMapSubTypeChange && (() => {
+            // Determine current map type based on drilldown state
+            const groupByLower = card.groupBy?.toLowerCase() || '';
+            let currentMapType = supportsMapVisualization.mapType;
+            
+            // For country groupBy: country → state (India only) → pincode
+            if (groupByLower === 'country') {
+              const normalizedCountry = selectedCountry !== 'all' ? String(selectedCountry).trim().toLowerCase() : '';
+              const isIndia = normalizedCountry === 'india' || normalizedCountry === 'ind' || normalizedCountry === 'in';
+              
+              if (selectedCountry !== 'all' && selectedRegion !== 'all' && isIndia) {
+                currentMapType = 'pincode';
+              } else if (selectedCountry !== 'all' && isIndia) {
+                currentMapType = 'state';
+              } else {
+                currentMapType = 'country';
+              }
+            }
+            // For region/state groupBy: state → pincode
+            else if (groupByLower === 'region' || groupByLower === 'state') {
+              if (selectedRegion !== 'all') {
+                currentMapType = 'pincode';
+              } else {
+                currentMapType = 'state';
+              }
+            }
+            // For pincode groupBy: just show pincodes (no drilldown)
+            else if (groupByLower === 'pincode') {
+              currentMapType = 'pincode';
+            }
+            
+            const currentMapSubType = mapSubType || card.mapSubType || 'choropleth';
+            
+            return (
+              <MenuItem
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setMenuAnchor(null);
+                }}
+                style={{ cursor: 'default', padding: '8px 16px' }}
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '150px' }}>
+                  <label style={{ fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '4px' }}>
+                    Map Type
+                  </label>
+                  <select
+                    value={currentMapSubType}
+                    onChange={(e) => {
+                      onMapSubTypeChange(e.target.value);
+                      setMenuAnchor(null);
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                    style={{
+                      padding: '6px 12px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '6px',
+                      fontSize: '12px',
+                      background: 'white',
+                      color: '#374151',
+                      width: '100%',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {currentMapType === 'pincode' && (
+                      <>
+                        <option value="scatter">Scatter Map</option>
+                        <option value="choropleth">Choropleth Map</option>
+                      </>
+                    )}
+                    {(currentMapType === 'state' || currentMapType === 'country') && (
+                      <option value="choropleth">Choropleth Map</option>
+                    )}
+                  </select>
+                </div>
+              </MenuItem>
+            );
+          })()}
           {onEdit && (
             <MenuItem
               onClick={() => {
@@ -32352,7 +32389,7 @@ const CustomCard = React.memo(({
             // geoMapData already contains the correct data for the current drilldown level
             let mapData = geoMapData;
             let mapType = supportsMapVisualization.mapType;
-            let mapSubType = card.mapSubType || 'choropleth';
+            let currentMapSubType = mapSubType || card.mapSubType || 'choropleth';
             let showBackBtn = filterHandler?.showBackButton || false;
 
             // For country groupBy: country → state (India only) → pincode
@@ -32400,50 +32437,23 @@ const CustomCard = React.memo(({
             });
 
             return (
-              <div style={{
-                background: 'white',
-                borderRadius: '12px',
-                border: '1px solid #e2e8f0',
-                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
-                display: 'flex',
-                flexDirection: 'column',
-                height: '100%',
-                overflow: 'hidden'
-              }}>
-                <div style={{
-                  padding: '12px 16px',
-                  flexShrink: 0
-                }}>
-                  {customHeader}
-                </div>
-                <div style={{
-                  flex: 1,
-                  minHeight: 0,
-                  padding: isMobile ? '8px' : '12px 16px',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  overflow: 'hidden'
-                }}>
-                  <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
-                    <GeoMapChart
-                      mapType={mapType}
-                      chartSubType={mapSubType}
-                      data={mapData}
-                      height={isMobile ? 340 : 450}
-                      isMobile={isMobile}
-                      onRegionClick={(regionName) => {
-                        console.log('🗺️ Custom card map click:', { cardTitle: card.title, regionName, groupBy: card.groupBy, mapType, hasHandler: !!filterHandler });
-                        filterHandler?.onClick?.(regionName);
-                      }}
-                      onBackClick={() => {
-                        console.log('🗺️ Custom card map back click:', { cardTitle: card.title, groupBy: card.groupBy, mapType });
-                        filterHandler?.onBackClick?.();
-                      }}
-                      showBackButton={showBackBtn}
-                    />
-                  </div>
-                </div>
-              </div>
+              <GeoMapChart
+                mapType={mapType}
+                chartSubType={currentMapSubType}
+                data={mapData}
+                height={isMobile ? 340 : 450}
+                isMobile={isMobile}
+                customHeader={customHeader}
+                onRegionClick={(regionName) => {
+                  console.log('🗺️ Custom card map click:', { cardTitle: card.title, regionName, groupBy: card.groupBy, mapType, hasHandler: !!filterHandler });
+                  filterHandler?.onClick?.(regionName);
+                }}
+                onBackClick={() => {
+                  console.log('🗺️ Custom card map back click:', { cardTitle: card.title, groupBy: card.groupBy, mapType });
+                  filterHandler?.onBackClick?.();
+                }}
+                showBackButton={showBackBtn}
+              />
             );
           })()}
           {chartType === 'pie' && (
