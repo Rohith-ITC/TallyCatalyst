@@ -12,6 +12,11 @@ import BarChart from '../salesdashboard/components/BarChart';
 import PieChart from '../salesdashboard/components/PieChart';
 import TreeMap from '../salesdashboard/components/TreeMap';
 import LineChart from '../salesdashboard/components/LineChart';
+import {
+  ResponsiveContainer,
+  AreaChart,
+  Area
+} from 'recharts';
 import ChartCard from '../salesdashboard/components/ChartCard';
 
 const getAuthToken = () => {
@@ -48,6 +53,61 @@ const ReceivablesDashboard = ({ company }) => {
   const [cardMenuAnchors, setCardMenuAnchors] = useState({}); // { ageing: element, salesperson: element, overdue: element }
   const [ageingChartType, setAgeingChartType] = useState('bar'); // 'bar' | 'pie' | 'treemap' | 'line'
   const [salespersonChartType, setSalespersonChartType] = useState('treemap');
+
+  // Memoized handlers for opening menus to prevent event handling issues
+  const handleOpenAgeingMenu = useCallback((event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const target = event.currentTarget;
+    setCardMenuAnchors((prev) => ({
+      ...prev,
+      ageing: target,
+    }));
+  }, []);
+
+  const handleOpenSalespersonMenu = useCallback((event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const target = event.currentTarget;
+    setCardMenuAnchors((prev) => ({
+      ...prev,
+      salesperson: target,
+    }));
+  }, []);
+
+  const handleOpenOverdueMenu = useCallback((event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const target = event.currentTarget;
+    setCardMenuAnchors((prev) => ({
+      ...prev,
+      overdue: target,
+    }));
+  }, []);
+
+  const handleOpenFullscreenMenu = useCallback((event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const target = event.currentTarget;
+    if (fullscreenCard) {
+      setCardMenuAnchors((prev) => ({
+        ...prev,
+        [fullscreenCard]: target,
+      }));
+    }
+  }, [fullscreenCard]);
+
+  const handleCloseAgeingMenu = useCallback(() => {
+    setCardMenuAnchors((prev) => ({ ...prev, ageing: null }));
+  }, []);
+
+  const handleCloseSalespersonMenu = useCallback(() => {
+    setCardMenuAnchors((prev) => ({ ...prev, salesperson: null }));
+  }, []);
+
+  const handleCloseOverdueMenu = useCallback(() => {
+    setCardMenuAnchors((prev) => ({ ...prev, overdue: null }));
+  }, []);
 
   // Keep header aligned with container (same pattern as SalesDashboard)
   useEffect(() => {
@@ -343,7 +403,7 @@ const ReceivablesDashboard = ({ company }) => {
 
       const formulaSalesperson = getFormulaFieldValue();
 
-      return (
+  return (
         formulaSalesperson ||
         voucher.salesprsn ||
         voucher.SalesPrsn ||
@@ -668,124 +728,389 @@ const ReceivablesDashboard = ({ company }) => {
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, minmax(0, 1fr))',
+              gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(160px, 1fr))',
               gap: isMobile ? '12px' : '16px',
+              marginBottom: '0',
+              marginTop: isMobile ? '8px' : '12px',
             }}
           >
             {/* Total Receivables */}
             <div
               style={{
-                background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
-                borderRadius: isMobile ? '12px' : '16px',
-                border: '1px solid #e2e8f0',
-                boxShadow:
-                  '0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
-                padding: isMobile ? '14px 16px' : '16px 20px',
+                background: '#1e40af',
+                borderRadius: '10px',
+                padding: isMobile ? '12px' : '16px',
+                border: 'none',
+                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
+                position: 'relative',
+                overflow: 'hidden',
                 display: 'flex',
                 flexDirection: 'column',
-                justifyContent: 'center',
+                minWidth: 0,
               }}
             >
+              {/* Background Area Chart */}
               <div
                 style={{
-                  fontSize: isMobile ? '11px' : '12px',
-                  letterSpacing: '0.06em',
-                  textTransform: 'uppercase',
-                  color: '#64748b',
-                  marginBottom: '6px',
-                  fontWeight: 600,
+                  position: 'absolute',
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  height: '50%',
+                  opacity: 0.6,
+                  pointerEvents: 'none',
+                  overflow: 'hidden',
+                  borderRadius: '0 0 10px 10px',
                 }}
               >
-                Total Receivables
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart
+                    data={[
+                      { value: 10 },
+                      { value: 30 },
+                      { value: 20 },
+                      { value: 40 },
+                      { value: 25 },
+                      { value: 35 },
+                    ]}
+                    margin={{ top: 0, right: 0, left: 0, bottom: 0 }}
+                  >
+                    <defs>
+                      <linearGradient id="totalGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#bfdbfe" stopOpacity={0.9} />
+                        <stop offset="100%" stopColor="#bfdbfe" stopOpacity={0.3} />
+                      </linearGradient>
+                    </defs>
+                    <Area
+                      type="monotone"
+                      dataKey="value"
+                      stroke="none"
+                      fill="url(#totalGradient)"
+                      fillOpacity={1}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
               </div>
+
+              {/* Content */}
               <div
                 style={{
-                  fontSize: isMobile ? '20px' : '24px',
-                  fontWeight: 800,
-                  color: '#111827',
-                  letterSpacing: '-0.03em',
+                  position: 'relative',
+                  zIndex: 1,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  flex: 1,
+                  minWidth: 0,
                 }}
               >
-                {formatCurrency(totalOutstanding)}
+                <p
+                  style={{
+                    margin: '0 0 6px 0',
+                    fontSize: isMobile ? '9px' : '10px',
+                    fontWeight: '600',
+                    color: '#e0e7ff',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em',
+                    lineHeight: '1.2',
+                  }}
+                >
+                  TOTAL RECEIVABLES
+                </p>
+                <p
+                  style={{
+                    margin: '0 0 auto 0',
+                    fontSize: isMobile ? '16px' : '20px',
+                    fontWeight: '700',
+                    color: '#ffffff',
+                    lineHeight: '1.2',
+                    letterSpacing: '-0.02em',
+                    whiteSpace: 'nowrap',
+                    overflow: 'visible',
+                  }}
+                >
+                  {formatCurrency(totalOutstanding)}
+                </p>
+
+                {/* Icon in bottom right */}
+                <div
+                  style={{
+                    width: isMobile ? '32px' : '36px',
+                    height: isMobile ? '32px' : '36px',
+                    borderRadius: '6px',
+                    background: 'rgba(255, 255, 255, 0.2)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginTop: '8px',
+                    alignSelf: 'flex-end',
+                  }}
+                >
+                  <span
+                    className="material-icons"
+                    style={{
+                      fontSize: isMobile ? '16px' : '18px',
+                      color: '#ffffff',
+                    }}
+                  >
+                    account_balance_wallet
+                  </span>
+                </div>
               </div>
             </div>
 
             {/* Within Due */}
             <div
               style={{
-                background: 'linear-gradient(135deg, #ecfdf3 0%, #dcfce7 100%)',
-                borderRadius: isMobile ? '12px' : '16px',
-                border: '1px solid #bbf7d0',
-                boxShadow:
-                  '0 10px 15px -3px rgba(22, 163, 74, 0.18), 0 4px 6px -2px rgba(22, 163, 74, 0.12)',
-                padding: isMobile ? '14px 16px' : '16px 20px',
+                background: '#1e40af',
+                borderRadius: '10px',
+                padding: isMobile ? '12px' : '16px',
+                border: 'none',
+                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
+                position: 'relative',
+                overflow: 'hidden',
                 display: 'flex',
                 flexDirection: 'column',
-                justifyContent: 'center',
+                minWidth: 0,
               }}
             >
+              {/* Background Area Chart */}
               <div
                 style={{
-                  fontSize: isMobile ? '11px' : '12px',
-                  letterSpacing: '0.06em',
-                  textTransform: 'uppercase',
-                  color: '#15803d',
-                  fontWeight: 600,
-                  marginBottom: '6px',
+                  position: 'absolute',
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  height: '50%',
+                  opacity: 0.3,
+                  pointerEvents: 'none',
                 }}
               >
-                Within Due
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart
+                    data={[
+                      { value: 15 },
+                      { value: 25 },
+                      { value: 18 },
+                      { value: 32 },
+                      { value: 28 },
+                      { value: 38 },
+                    ]}
+                    margin={{ top: 0, right: 0, left: 0, bottom: 0 }}
+                  >
+                    <defs>
+                      <linearGradient id="withinDueGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#93c5fd" stopOpacity={0.6} />
+                        <stop offset="100%" stopColor="#93c5fd" stopOpacity={0.1} />
+                      </linearGradient>
+                    </defs>
+                    <Area
+                      type="monotone"
+                      dataKey="value"
+                      stroke="none"
+                      fill="url(#withinDueGradient)"
+                      fillOpacity={1}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
               </div>
+
+              {/* Content */}
               <div
                 style={{
-                  fontSize: isMobile ? '20px' : '24px',
-                  fontWeight: 800,
-                  color: '#047857',
-                  letterSpacing: '-0.03em',
+                  position: 'relative',
+                  zIndex: 1,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  flex: 1,
+                  minWidth: 0,
                 }}
               >
-                {formatCurrency(withinDueAmount)}
+                <p
+                  style={{
+                    margin: '0 0 6px 0',
+                    fontSize: isMobile ? '9px' : '10px',
+                    fontWeight: '600',
+                    color: '#e0e7ff',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em',
+                    lineHeight: '1.2',
+                  }}
+                >
+                  WITHIN DUE
+                </p>
+                <p
+                  style={{
+                    margin: '0 0 auto 0',
+                    fontSize: isMobile ? '16px' : '20px',
+                    fontWeight: '700',
+                    color: '#ffffff',
+                    lineHeight: '1.2',
+                    letterSpacing: '-0.02em',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                  }}
+                >
+                  {formatCurrency(withinDueAmount)}
+                </p>
+
+                {/* Icon in bottom right */}
+                <div
+                  style={{
+                    width: isMobile ? '32px' : '36px',
+                    height: isMobile ? '32px' : '36px',
+                    borderRadius: '6px',
+                    background: 'rgba(255, 255, 255, 0.2)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginTop: '8px',
+                    alignSelf: 'flex-end',
+                  }}
+                >
+                  <span
+                    className="material-icons"
+                    style={{
+                      fontSize: isMobile ? '16px' : '18px',
+                      color: '#ffffff',
+                    }}
+                  >
+                    schedule
+                  </span>
+                </div>
               </div>
             </div>
 
             {/* Overdue */}
             <div
               style={{
-                background: 'linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%)',
-                borderRadius: isMobile ? '12px' : '16px',
-                border: '1px solid #fecaca',
-                boxShadow:
-                  '0 10px 15px -3px rgba(220, 38, 38, 0.18), 0 4px 6px -2px rgba(220, 38, 38, 0.12)',
-                padding: isMobile ? '14px 16px' : '16px 20px',
+                background: overdueAmount > 0 ? '#dc2626' : '#047857',
+                borderRadius: '10px',
+                padding: isMobile ? '12px' : '16px',
+                border: 'none',
+                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
+                position: 'relative',
+                overflow: 'hidden',
                 display: 'flex',
                 flexDirection: 'column',
-                justifyContent: 'center',
+                minWidth: 0,
               }}
             >
+              {/* Background Area Chart */}
               <div
                 style={{
-                  fontSize: isMobile ? '11px' : '12px',
-                  color: '#b91c1c',
-                  marginBottom: '6px',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.06em',
-                  fontWeight: 600,
+                  position: 'absolute',
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  height: '50%',
+                  opacity: 0.3,
+                  pointerEvents: 'none',
                 }}
               >
-                <span>Overdue</span>
-                <span>{overduePercent.toFixed(1)}%</span>
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart
+                    data={[
+                      { value: 20 },
+                      { value: 35 },
+                      { value: 28 },
+                      { value: 42 },
+                      { value: 38 },
+                      { value: 45 },
+                    ]}
+                    margin={{ top: 0, right: 0, left: 0, bottom: 0 }}
+                  >
+                    <defs>
+                      <linearGradient id="overdueGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop
+                          offset="0%"
+                          stopColor={overdueAmount > 0 ? '#fca5a5' : '#6ee7b7'}
+                          stopOpacity={0.6}
+                        />
+                        <stop
+                          offset="100%"
+                          stopColor={overdueAmount > 0 ? '#fca5a5' : '#6ee7b7'}
+                          stopOpacity={0.1}
+                        />
+                      </linearGradient>
+                    </defs>
+                    <Area
+                      type="monotone"
+                      dataKey="value"
+                      stroke="none"
+                      fill="url(#overdueGradient)"
+                      fillOpacity={1}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
               </div>
+
+              {/* Content */}
               <div
                 style={{
-                  fontSize: isMobile ? '20px' : '24px',
-                  fontWeight: 800,
-                  color: '#b91c1c',
-                  letterSpacing: '-0.03em',
+                  position: 'relative',
+                  zIndex: 1,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  flex: 1,
+                  minWidth: 0,
                 }}
               >
-                {formatCurrency(overdueAmount)}
+                <div
+                  style={{
+                    margin: '0 0 6px 0',
+                    fontSize: isMobile ? '9px' : '10px',
+                    fontWeight: '600',
+                    color: '#fef3c7',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em',
+                    lineHeight: '1.2',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                  }}
+                >
+                  <span>OVERDUE</span>
+                  <span>{overduePercent.toFixed(1)}%</span>
+                </div>
+                <p
+                  style={{
+                    margin: '0 0 auto 0',
+                    fontSize: isMobile ? '16px' : '20px',
+                    fontWeight: '700',
+                    color: '#ffffff',
+                    lineHeight: '1.2',
+                    letterSpacing: '-0.02em',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                  }}
+                >
+                  {formatCurrency(overdueAmount)}
+                </p>
+
+                {/* Icon in bottom right */}
+                <div
+                  style={{
+                    width: isMobile ? '32px' : '36px',
+                    height: isMobile ? '32px' : '36px',
+                    borderRadius: '6px',
+                    background: 'rgba(255, 255, 255, 0.2)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginTop: '8px',
+                    alignSelf: 'flex-end',
+                  }}
+                >
+                  <span
+                    className="material-icons"
+                    style={{
+                      fontSize: isMobile ? '16px' : '18px',
+                      color: '#ffffff',
+                    }}
+                  >
+                    warning_amber
+                  </span>
+                </div>
               </div>
             </div>
           </div>
@@ -824,16 +1149,10 @@ const ReceivablesDashboard = ({ company }) => {
                       </h2>
                       <IconButton
                         size="small"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setCardMenuAnchors((prev) => ({
-                            ...prev,
-                            ageing: e.currentTarget,
-                          }));
-                        }}
+                        onClick={handleOpenAgeingMenu}
                         style={{
                           padding: 4,
-                          color: '#64748b',
+            color: '#64748b',
                         }}
                         title="Options"
                       >
@@ -874,13 +1193,7 @@ const ReceivablesDashboard = ({ company }) => {
                       </h2>
                       <IconButton
                         size="small"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setCardMenuAnchors((prev) => ({
-                            ...prev,
-                            ageing: e.currentTarget,
-                          }));
-                        }}
+                        onClick={handleOpenAgeingMenu}
                         style={{
                           padding: 4,
                           color: '#64748b',
@@ -924,13 +1237,7 @@ const ReceivablesDashboard = ({ company }) => {
                       </h2>
                       <IconButton
                         size="small"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setCardMenuAnchors((prev) => ({
-                            ...prev,
-                            ageing: e.currentTarget,
-                          }));
-                        }}
+                        onClick={handleOpenAgeingMenu}
                         style={{
                           padding: 4,
                           color: '#64748b',
@@ -974,13 +1281,7 @@ const ReceivablesDashboard = ({ company }) => {
                       </h2>
                       <IconButton
                         size="small"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setCardMenuAnchors((prev) => ({
-                            ...prev,
-                            ageing: e.currentTarget,
-                          }));
-                        }}
+                        onClick={handleOpenAgeingMenu}
                         style={{
                           padding: 4,
                           color: '#64748b',
@@ -1159,13 +1460,7 @@ const ReceivablesDashboard = ({ company }) => {
                             </h2>
                             <IconButton
                               size="small"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setCardMenuAnchors((prev) => ({
-                                  ...prev,
-                                  salesperson: e.currentTarget,
-                                }));
-                              }}
+                              onClick={handleOpenSalespersonMenu}
                               style={{
                                 padding: 4,
                                 color: '#64748b',
@@ -1212,13 +1507,7 @@ const ReceivablesDashboard = ({ company }) => {
                             </h2>
                             <IconButton
                               size="small"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setCardMenuAnchors((prev) => ({
-                                  ...prev,
-                                  salesperson: e.currentTarget,
-                                }));
-                              }}
+                              onClick={handleOpenSalespersonMenu}
                               style={{
                                 padding: 4,
                                 color: '#64748b',
@@ -1265,13 +1554,7 @@ const ReceivablesDashboard = ({ company }) => {
                             </h2>
                             <IconButton
                               size="small"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setCardMenuAnchors((prev) => ({
-                                  ...prev,
-                                  salesperson: e.currentTarget,
-                                }));
-                              }}
+                              onClick={handleOpenSalespersonMenu}
                               style={{
                                 padding: 4,
                                 color: '#64748b',
@@ -1318,13 +1601,7 @@ const ReceivablesDashboard = ({ company }) => {
                             </h2>
                             <IconButton
                               size="small"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setCardMenuAnchors((prev) => ({
-                                  ...prev,
-                                  salesperson: e.currentTarget,
-                                }));
-                              }}
+                              onClick={handleOpenSalespersonMenu}
                               style={{
                                 padding: 4,
                                 color: '#64748b',
@@ -1377,16 +1654,10 @@ const ReceivablesDashboard = ({ company }) => {
                 </h2>
                 <IconButton
                   size="small"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setCardMenuAnchors((prev) => ({
-                      ...prev,
-                      overdue: e.currentTarget,
-                    }));
-                  }}
+                  onClick={handleOpenOverdueMenu}
                   style={{
                     padding: 4,
-            color: '#64748b',
+                    color: '#64748b',
                   }}
                   title="Options"
                 >
@@ -1399,7 +1670,7 @@ const ReceivablesDashboard = ({ company }) => {
                 </IconButton>
                 <div
                   style={{
-                    fontSize: '12px',
+            fontSize: '12px',
                     color: '#6b7280',
                   }}
                 >
@@ -1498,9 +1769,9 @@ const ReceivablesDashboard = ({ company }) => {
                     </tbody>
                   </table>
                 </div>
-              )}
-            </div>
-          </div>
+        )}
+      </div>
+    </div>
 
           {/* Fullscreen overlay for cards */}
           {fullscreenCard && (
@@ -1549,110 +1820,81 @@ const ReceivablesDashboard = ({ company }) => {
                     {fullscreenCard === 'salesperson' && 'Salesperson Totals'}
                     {fullscreenCard === 'overdue' && 'Overdue in Next 7 Days'}
                   </h2>
-                  <button
-                    type="button"
-                    onClick={() => setFullscreenCard(null)}
-                    style={{
-                      background: 'transparent',
-                      border: 'none',
-                      cursor: 'pointer',
-                      padding: 0,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
-                  >
-                    <span
-                      className="material-icons"
-                      style={{ fontSize: '22px', color: '#4b5563' }}
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    {/* Chart type selector for ageing and salesperson in fullscreen */}
+                    {(fullscreenCard === 'ageing' || fullscreenCard === 'salesperson') && (
+                      <IconButton
+                        size="small"
+                        onClick={handleOpenFullscreenMenu}
+                        style={{
+                          padding: 4,
+                          color: '#64748b',
+                        }}
+                        title="Options"
+                      >
+                        <span
+                          className="material-icons"
+                          style={{ fontSize: '20px' }}
+                        >
+                          more_vert
+                        </span>
+                      </IconButton>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setFullscreenCard(null)}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        cursor: 'pointer',
+                        padding: 0,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
                     >
-                      close
-                    </span>
-                  </button>
+                      <span
+                        className="material-icons"
+                        style={{ fontSize: '22px', color: '#4b5563' }}
+                      >
+                        close
+                      </span>
+                    </button>
+                  </div>
                 </div>
 
                 {fullscreenCard === 'ageing' && (
-                  <div style={{ marginTop: '8px' }}>
-                    {ageingBuckets.length === 0 ? (
-                      <div
-                        style={{
-                          padding: '24px 0',
-                          fontSize: '14px',
-                          color: '#6b7280',
-                          textAlign: 'center',
-                        }}
-                      >
-                        No receivables data.
-                      </div>
-                    ) : (
-                      <div
-                        style={{
-                          display: 'flex',
-                          flexDirection: 'column',
-                          gap: '10px',
-                          marginTop: '8px',
-                        }}
-                      >
-                        {ageingBuckets.map((bucket) => {
-                          const pct =
-                            totalOutstanding > 0
-                              ? Math.max(
-                                  2,
-                                  Math.min(
-                                    100,
-                                    (Math.abs(bucket.amount) /
-                                      Math.abs(totalOutstanding)) *
-                                      100
-                                  )
-                                )
-                              : 0;
-                          return (
-                            <div key={bucket.key}>
-                              <div
-                                style={{
-                                  display: 'flex',
-                                  justifyContent: 'space-between',
-                                  fontSize: '14px',
-                                  marginBottom: '4px',
-                                  color: '#374151',
-                                }}
-                              >
-                                <span>{bucket.label}</span>
-                                <span>{formatCurrency(bucket.amount)}</span>
-                              </div>
-                              <div
-                                style={{
-                                  height: '10px',
-                                  borderRadius: '9999px',
-                                  background: '#e5e7eb',
-                                  overflow: 'hidden',
-                                }}
-                              >
-                                <div
-                                  style={{
-                                    width: `${pct}%`,
-                                    height: '100%',
-                                    borderRadius: '9999px',
-                                    background:
-                                      bucket.key === '>180'
-                                        ? '#b91c1c'
-                                        : bucket.key === '91-180'
-                                        ? '#f97316'
-                                        : '#0ea5e9',
-                                  }}
-                                />
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
+                  <div style={{ marginTop: '8px', height: '70vh' }}>
+                    {ageingChartType === 'bar' && (
+                      <BarChart
+                        data={ageingChartData}
+                        formatValue={(v) => formatCurrency(v)}
+                      />
+                    )}
+                    {ageingChartType === 'pie' && (
+                      <PieChart
+                        data={ageingChartData}
+                        formatValue={(v) => formatCurrency(v)}
+                      />
+                    )}
+                    {ageingChartType === 'treemap' && (
+                      <TreeMap
+                        data={ageingChartData}
+                        formatValue={(v) => formatCurrency(v)}
+                      />
+                    )}
+                    {ageingChartType === 'line' && (
+                      <LineChart
+                        data={ageingChartData}
+                        formatValue={(v) => formatCurrency(v)}
+                      />
                     )}
                   </div>
                 )}
 
                 {fullscreenCard === 'salesperson' && (
-                  <div style={{ marginTop: '8px' }}>
-                    {!salespersonField ? (
+                  <div style={{ marginTop: '8px', height: '70vh' }}>
+                    {!salespersonField || salespersonTotals.length === 0 ? (
                       <div
                         style={{
                           padding: '24px 0',
@@ -1661,53 +1903,49 @@ const ReceivablesDashboard = ({ company }) => {
                           textAlign: 'center',
                         }}
                       >
-                        Salesperson information is not available in the API
-                        response.
-                      </div>
-                    ) : salespersonTotals.length === 0 ? (
-                      <div
-                        style={{
-                          padding: '24px 0',
-                          fontSize: '14px',
-                          color: '#6b7280',
-                          textAlign: 'center',
-                        }}
-                      >
-                        No receivables for any salesperson.
+                        {!salespersonField
+                          ? 'Salesperson information is not available in the API response.'
+                          : 'No receivables for any salesperson.'}
                       </div>
                     ) : (
-                      <div
-                        style={{
-                          marginTop: '8px',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          gap: '10px',
-                        }}
-                      >
-                        {salespersonTotals.map((sp) => (
-                          <div
-                            key={sp.name}
-                            style={{
-                              display: 'flex',
-                              justifyContent: 'space-between',
-                              alignItems: 'center',
-                              fontSize: '14px',
-                              padding: '8px 0',
-                              borderBottom: '1px solid #f3f4f6',
-                            }}
-                          >
-                            <span style={{ color: '#374151' }}>{sp.name}</span>
-                            <span
-                              style={{
-                                color: '#111827',
-                                fontWeight: 500,
-                              }}
-                            >
-                              {formatCurrency(sp.value)}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
+                      <>
+                        {salespersonChartType === 'bar' && (
+                          <BarChart
+                            data={salespersonTotals.map((sp) => ({
+                              label: sp.name,
+                              value: Math.abs(sp.value || 0),
+                            }))}
+                            formatValue={(v) => formatCurrency(v)}
+                          />
+                        )}
+                        {salespersonChartType === 'pie' && (
+                          <PieChart
+                            data={salespersonTotals.map((sp) => ({
+                              label: sp.name,
+                              value: Math.abs(sp.value || 0),
+                            }))}
+                            formatValue={(v) => formatCurrency(v)}
+                          />
+                        )}
+                        {salespersonChartType === 'treemap' && (
+                          <TreeMap
+                            data={salespersonTotals.map((sp) => ({
+                              label: sp.name,
+                              value: Math.abs(sp.value || 0),
+                            }))}
+                            formatValue={(v) => formatCurrency(v)}
+                          />
+                        )}
+                        {salespersonChartType === 'line' && (
+                          <LineChart
+                            data={salespersonTotals.map((sp) => ({
+                              label: sp.name,
+                              value: Math.abs(sp.value || 0),
+                            }))}
+                            formatValue={(v) => formatCurrency(v)}
+                          />
+                        )}
+                      </>
                     )}
                   </div>
                 )}
@@ -1825,9 +2063,7 @@ const ReceivablesDashboard = ({ company }) => {
           <Menu
             anchorEl={cardMenuAnchors.ageing}
             open={Boolean(cardMenuAnchors.ageing)}
-            onClose={() =>
-              setCardMenuAnchors((prev) => ({ ...prev, ageing: null }))
-            }
+            onClose={handleCloseAgeingMenu}
             anchorOrigin={{
               vertical: 'bottom',
               horizontal: 'right',
@@ -1836,11 +2072,16 @@ const ReceivablesDashboard = ({ company }) => {
               vertical: 'top',
               horizontal: 'right',
             }}
+            slotProps={{
+              root: {
+                style: { zIndex: 1600 }
+              }
+            }}
           >
             <MenuItem
               onClick={(e) => {
                 e.stopPropagation();
-                setCardMenuAnchors((prev) => ({ ...prev, ageing: null }));
+                handleCloseAgeingMenu();
                 setFullscreenCard('ageing');
               }}
             >
@@ -1865,7 +2106,6 @@ const ReceivablesDashboard = ({ company }) => {
             <MenuItem
               onClick={(e) => {
                 e.stopPropagation();
-                setCardMenuAnchors((prev) => ({ ...prev, ageing: null }));
               }}
               style={{ cursor: 'default', padding: '8px 16px' }}
               onMouseDown={(e) => e.stopPropagation()}
@@ -1885,7 +2125,7 @@ const ReceivablesDashboard = ({ company }) => {
                   value={ageingChartType}
                   onChange={(e) => {
                     setAgeingChartType(e.target.value);
-                    setCardMenuAnchors((prev) => ({ ...prev, ageing: null }));
+                    handleCloseAgeingMenu();
                   }}
                   onClick={(e) => e.stopPropagation()}
                   style={{
@@ -1911,9 +2151,7 @@ const ReceivablesDashboard = ({ company }) => {
           <Menu
             anchorEl={cardMenuAnchors.salesperson}
             open={Boolean(cardMenuAnchors.salesperson)}
-            onClose={() =>
-              setCardMenuAnchors((prev) => ({ ...prev, salesperson: null }))
-            }
+            onClose={handleCloseSalespersonMenu}
             anchorOrigin={{
               vertical: 'bottom',
               horizontal: 'right',
@@ -1922,11 +2160,16 @@ const ReceivablesDashboard = ({ company }) => {
               vertical: 'top',
               horizontal: 'right',
             }}
+            slotProps={{
+              root: {
+                style: { zIndex: 1600 }
+              }
+            }}
           >
             <MenuItem
               onClick={(e) => {
                 e.stopPropagation();
-                setCardMenuAnchors((prev) => ({ ...prev, salesperson: null }));
+                handleCloseSalespersonMenu();
                 setFullscreenCard('salesperson');
               }}
             >
@@ -1951,7 +2194,6 @@ const ReceivablesDashboard = ({ company }) => {
             <MenuItem
               onClick={(e) => {
                 e.stopPropagation();
-                setCardMenuAnchors((prev) => ({ ...prev, salesperson: null }));
               }}
               style={{ cursor: 'default', padding: '8px 16px' }}
               onMouseDown={(e) => e.stopPropagation()}
@@ -1978,10 +2220,7 @@ const ReceivablesDashboard = ({ company }) => {
                   value={salespersonChartType}
                   onChange={(e) => {
                     setSalespersonChartType(e.target.value);
-                    setCardMenuAnchors((prev) => ({
-                      ...prev,
-                      salesperson: null,
-                    }));
+                    handleCloseSalespersonMenu();
                   }}
                   onClick={(e) => e.stopPropagation()}
                   style={{
@@ -2007,9 +2246,7 @@ const ReceivablesDashboard = ({ company }) => {
           <Menu
             anchorEl={cardMenuAnchors.overdue}
             open={Boolean(cardMenuAnchors.overdue)}
-            onClose={() =>
-              setCardMenuAnchors((prev) => ({ ...prev, overdue: null }))
-            }
+            onClose={handleCloseOverdueMenu}
             anchorOrigin={{
               vertical: 'bottom',
               horizontal: 'right',
@@ -2018,11 +2255,16 @@ const ReceivablesDashboard = ({ company }) => {
               vertical: 'top',
               horizontal: 'right',
             }}
+            slotProps={{
+              root: {
+                style: { zIndex: 1600 }
+              }
+            }}
           >
             <MenuItem
               onClick={(e) => {
                 e.stopPropagation();
-                setCardMenuAnchors((prev) => ({ ...prev, overdue: null }));
+                handleCloseOverdueMenu();
                 setFullscreenCard('overdue');
               }}
             >
