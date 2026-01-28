@@ -31,6 +31,15 @@ export const MODULE_SEQUENCE = [
       permissions     : {}
     },
     {
+      key             : 'receivables_dashboard_new',
+      id              : 'receivables_dashboard_new',
+      label           : 'Receivables Dashboard (New)',
+      icon            : 'account_balance_wallet',
+      alwaysVisible   : true,
+      //skipAutoFocus   : true,
+      permissions     : {}
+    },
+    {
       key             : 'receipt_find_party',
       id              : 'receipt_find_party',
       label           : 'Receipt Find Party',
