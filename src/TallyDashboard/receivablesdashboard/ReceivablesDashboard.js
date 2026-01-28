@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react';
+import { IconButton, Menu, MenuItem } from '@mui/material';
 import { getApiUrl } from '../../config';
 import {
   formatCurrency,
@@ -7,6 +8,11 @@ import {
 } from '../../RecvDashboard/utils/helpers';
 import { getCompanyConfigValue, clearCompanyConfigCache } from '../../utils/companyConfigUtils';
 import { hybridCache } from '../../utils/hybridCache';
+import BarChart from '../salesdashboard/components/BarChart';
+import PieChart from '../salesdashboard/components/PieChart';
+import TreeMap from '../salesdashboard/components/TreeMap';
+import LineChart from '../salesdashboard/components/LineChart';
+import ChartCard from '../salesdashboard/components/ChartCard';
 
 const getAuthToken = () => {
   const token = sessionStorage.getItem('token');
@@ -38,6 +44,10 @@ const ReceivablesDashboard = ({ company }) => {
   const [salespersonFormula, setSalespersonFormula] = useState('');
   const [salespersonTotals, setSalespersonTotals] = useState([]);
   const [salespersonField, setSalespersonField] = useState(null);
+  const [fullscreenCard, setFullscreenCard] = useState(null); // 'ageing' | 'salesperson' | 'overdue' | null
+  const [cardMenuAnchors, setCardMenuAnchors] = useState({}); // { ageing: element, salesperson: element, overdue: element }
+  const [ageingChartType, setAgeingChartType] = useState('bar'); // 'bar' | 'pie' | 'treemap' | 'line'
+  const [salespersonChartType, setSalespersonChartType] = useState('treemap');
 
   // Keep header aligned with container (same pattern as SalesDashboard)
   useEffect(() => {
@@ -296,6 +306,15 @@ const ReceivablesDashboard = ({ company }) => {
     };
   }, [receivables, now]);
 
+  const ageingChartData = useMemo(
+    () =>
+      (ageingBuckets || []).map((b) => ({
+        label: b.label,
+        value: Math.abs(b.amount || 0),
+      })),
+    [ageingBuckets]
+  );
+
   // Extract salesperson from a sales voucher using the same pattern as SalesDashboard
   const extractSalespersonFromVoucher = useCallback(
     (voucher) => {
@@ -364,25 +383,58 @@ const ReceivablesDashboard = ({ company }) => {
           companyInfo
         );
         const vouchers =
-          completeCache?.data?.vouchers && Array.isArray(completeCache.data.vouchers)
+          completeCache?.data?.vouchers &&
+          Array.isArray(completeCache.data.vouchers)
             ? completeCache.data.vouchers
             : [];
 
-        if (!vouchers.length) {
+        if (!vouchers.length || !Array.isArray(receivables) || receivables.length === 0) {
           setSalespersonTotals([]);
           setSalespersonField(null);
           return;
         }
 
-        const map = new Map();
+        // Build a mapping from ledger/customer name -> salesperson using cached sales data
+        const ledgerToSalesperson = new Map();
+        const normalizeName = (value) =>
+          value && typeof value === 'string'
+            ? value.trim().toUpperCase()
+            : value
+            ? String(value).trim().toUpperCase()
+            : '';
+
         vouchers.forEach((voucher) => {
           const sp = extractSalespersonFromVoucher(voucher);
-          if (!sp) return;
+          const ledgerName =
+            voucher.partyledgername || voucher.party || voucher.LEDGERNAME;
 
-          const amount =
-            parseNumber(
-              voucher.amount ?? voucher.AMOUNT ?? voucher.amt ?? voucher.Amt
-            ) || 0;
+          if (!sp || !ledgerName) return;
+
+          const key = normalizeName(ledgerName);
+          if (!key) return;
+
+          if (!ledgerToSalesperson.has(key)) {
+            ledgerToSalesperson.set(key, sp);
+          }
+        });
+
+        const map = new Map();
+
+        // Now aggregate receivables closing balances by mapped salesperson,
+        // mirroring the old ReceivablesPage logic for values.
+        receivables.forEach((row) => {
+          const ledgerName =
+            row.LEDGERNAME || row.LedgerName || row.ledgername || null;
+          if (!ledgerName) return;
+
+          const key = normalizeName(ledgerName);
+          if (!key) return;
+
+          const sp = ledgerToSalesperson.get(key) || 'Unassigned';
+
+          const debitCls = parseNumber(row.DEBITCLSBAL ?? row.DEBITOPENBAL);
+          const creditCls = parseNumber(row.CREDITCLSBAL ?? row.CREDITOPENBAL);
+          const amount = debitCls - creditCls;
           if (!amount) return;
 
           if (!map.has(sp)) {
@@ -399,7 +451,7 @@ const ReceivablesDashboard = ({ company }) => {
         );
 
         setSalespersonTotals(list);
-        setSalespersonField(list.length > 0 ? 'sales_cache' : null);
+        setSalespersonField(list.length > 0 ? 'receivables_by_sales' : null);
       } catch (e) {
         console.error(
           'Error loading salesperson totals from sales cache:',
@@ -411,7 +463,7 @@ const ReceivablesDashboard = ({ company }) => {
     };
 
     loadSalespersonTotals();
-  }, [company?.guid, company?.tallyloc_id, extractSalespersonFromVoucher, parseNumber]);
+  }, [company?.guid, company?.tallyloc_id, extractSalespersonFromVoucher, parseNumber, receivables]);
 
   const formatLastUpdated = () => {
     if (!lastUpdated) return '';
@@ -445,7 +497,7 @@ const ReceivablesDashboard = ({ company }) => {
         ref={containerRef}
         style={{
           background: 'transparent',
-          minHeight: '100vh',
+      minHeight: '100vh',
           padding: isMobile ? '12px' : '0px',
           width: isMobile ? '100vw' : '80vw',
           margin: 0,
@@ -492,7 +544,7 @@ const ReceivablesDashboard = ({ company }) => {
               style={{
                 width: '40px',
                 height: '40px',
-                borderRadius: '8px',
+        borderRadius: '8px',
                 background: '#1e3a8a',
                 display: 'flex',
                 alignItems: 'center',
@@ -519,7 +571,7 @@ const ReceivablesDashboard = ({ company }) => {
                 }}
               >
                 Receivables Dashboard
-              </h1>
+        </h1>
               {company?.company && (
                 <div
                   style={{
@@ -565,7 +617,7 @@ const ReceivablesDashboard = ({ company }) => {
               style={{
                 background: loading ? '#4b5563' : '#10b981',
                 color: 'white',
-                borderRadius: '8px',
+        borderRadius: '8px',
                 padding: '6px 12px',
                 border: 'none',
                 cursor: loading ? 'not-allowed' : 'pointer',
@@ -605,7 +657,7 @@ const ReceivablesDashboard = ({ company }) => {
                 border: '1px solid #fecaca',
                 padding: '12px 16px',
                 color: '#b91c1c',
-                fontSize: '14px',
+          fontSize: '14px',
               }}
             >
               {error}
@@ -617,51 +669,68 @@ const ReceivablesDashboard = ({ company }) => {
             style={{
               display: 'grid',
               gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, minmax(0, 1fr))',
-              gap: '16px',
+              gap: isMobile ? '12px' : '16px',
             }}
           >
+            {/* Total Receivables */}
             <div
               style={{
-                background: 'white',
-                borderRadius: '12px',
-                border: '1px solid #e5e7eb',
-                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.06)',
-                padding: '16px 18px',
+                background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
+                borderRadius: isMobile ? '12px' : '16px',
+                border: '1px solid #e2e8f0',
+                boxShadow:
+                  '0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
+                padding: isMobile ? '14px 16px' : '16px 20px',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'center',
               }}
             >
               <div
                 style={{
-                  fontSize: '13px',
-                  color: '#6b7280',
+                  fontSize: isMobile ? '11px' : '12px',
+                  letterSpacing: '0.06em',
+                  textTransform: 'uppercase',
+                  color: '#64748b',
                   marginBottom: '6px',
+                  fontWeight: 600,
                 }}
               >
                 Total Receivables
               </div>
               <div
                 style={{
-                  fontSize: isMobile ? '20px' : '22px',
-                  fontWeight: 700,
+                  fontSize: isMobile ? '20px' : '24px',
+                  fontWeight: 800,
                   color: '#111827',
+                  letterSpacing: '-0.03em',
                 }}
               >
                 {formatCurrency(totalOutstanding)}
               </div>
             </div>
 
+            {/* Within Due */}
             <div
               style={{
-                background: 'white',
-                borderRadius: '12px',
-                border: '1px solid #e5e7eb',
-                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.06)',
-                padding: '16px 18px',
+                background: 'linear-gradient(135deg, #ecfdf3 0%, #dcfce7 100%)',
+                borderRadius: isMobile ? '12px' : '16px',
+                border: '1px solid #bbf7d0',
+                boxShadow:
+                  '0 10px 15px -3px rgba(22, 163, 74, 0.18), 0 4px 6px -2px rgba(22, 163, 74, 0.12)',
+                padding: isMobile ? '14px 16px' : '16px 20px',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'center',
               }}
             >
               <div
                 style={{
-                  fontSize: '13px',
-                  color: '#6b7280',
+                  fontSize: isMobile ? '11px' : '12px',
+                  letterSpacing: '0.06em',
+                  textTransform: 'uppercase',
+                  color: '#15803d',
+                  fontWeight: 600,
                   marginBottom: '6px',
                 }}
               >
@@ -669,31 +738,40 @@ const ReceivablesDashboard = ({ company }) => {
               </div>
               <div
                 style={{
-                  fontSize: isMobile ? '20px' : '22px',
-                  fontWeight: 700,
+                  fontSize: isMobile ? '20px' : '24px',
+                  fontWeight: 800,
                   color: '#047857',
+                  letterSpacing: '-0.03em',
                 }}
               >
                 {formatCurrency(withinDueAmount)}
               </div>
             </div>
 
+            {/* Overdue */}
             <div
               style={{
-                background: 'white',
-                borderRadius: '12px',
-                border: '1px solid #e5e7eb',
-                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.06)',
-                padding: '16px 18px',
+                background: 'linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%)',
+                borderRadius: isMobile ? '12px' : '16px',
+                border: '1px solid #fecaca',
+                boxShadow:
+                  '0 10px 15px -3px rgba(220, 38, 38, 0.18), 0 4px 6px -2px rgba(220, 38, 38, 0.12)',
+                padding: isMobile ? '14px 16px' : '16px 20px',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'center',
               }}
             >
               <div
                 style={{
-                  fontSize: '13px',
-                  color: '#6b7280',
+                  fontSize: isMobile ? '11px' : '12px',
+                  color: '#b91c1c',
                   marginBottom: '6px',
                   display: 'flex',
                   justifyContent: 'space-between',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.06em',
+                  fontWeight: 600,
                 }}
               >
                 <span>Overdue</span>
@@ -701,9 +779,10 @@ const ReceivablesDashboard = ({ company }) => {
               </div>
               <div
                 style={{
-                  fontSize: isMobile ? '20px' : '22px',
-                  fontWeight: 700,
+                  fontSize: isMobile ? '20px' : '24px',
+                  fontWeight: 800,
                   color: '#b91c1c',
+                  letterSpacing: '-0.03em',
                 }}
               >
                 {formatCurrency(overdueAmount)}
@@ -711,320 +790,1263 @@ const ReceivablesDashboard = ({ company }) => {
             </div>
           </div>
 
-          {/* Ageing + Salesperson row */}
+          {/* Ageing + Salesperson + Overdue row */}
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: isMobile ? '1fr' : '2fr 2fr',
+              gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, minmax(0, 1fr))',
               gap: '16px',
             }}
           >
-            {/* Ageing buckets */}
-            <div
-              style={{
-                background: 'white',
-                borderRadius: '12px',
-                border: '1px solid #e5e7eb',
-                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.06)',
-                padding: '16px 18px',
-              }}
-            >
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  marginBottom: '8px',
-                }}
-              >
-                <h2
-                  style={{
-                    margin: 0,
-                    fontSize: '15px',
-                    fontWeight: 600,
-                    color: '#111827',
-                  }}
-                >
-                  Ageing Buckets
-                </h2>
-              </div>
-              {ageingBuckets.length === 0 ? (
-                <div
-                  style={{
-                    padding: '16px 0',
-                    fontSize: '13px',
-                    color: '#6b7280',
-                    textAlign: 'center',
-                  }}
-                >
-                  No receivables data.
-                </div>
-              ) : (
-                <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  {ageingBuckets.map((bucket) => {
-                    const pct =
-                      totalOutstanding > 0
-                        ? Math.max(
-                            2,
-                            Math.min(
-                              100,
-                              (Math.abs(bucket.amount) / Math.abs(totalOutstanding)) *
-                                100
-                            )
-                          )
-                        : 0;
-                    return (
-                      <div key={bucket.key}>
-                        <div
-                          style={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            fontSize: '13px',
-                            marginBottom: '4px',
-                            color: '#374151',
-                          }}
-                        >
-                          <span>{bucket.label}</span>
-                          <span>{formatCurrency(bucket.amount)}</span>
-                        </div>
-                        <div
-                          style={{
-                            height: '8px',
-                            borderRadius: '9999px',
-                            background: '#e5e7eb',
-                            overflow: 'hidden',
-                          }}
-                        >
-                          <div
-                            style={{
-                              width: `${pct}%`,
-                              height: '100%',
-                              borderRadius: '9999px',
-                              background:
-                                bucket.key === '>180'
-                                  ? '#b91c1c'
-                                  : bucket.key === '91-180'
-                                  ? '#f97316'
-                                  : '#0ea5e9',
-                            }}
-                          />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            {/* Salesperson totals */}
-            <div
-              style={{
-                background: 'white',
-                borderRadius: '12px',
-                border: '1px solid #e5e7eb',
-                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.06)',
-                padding: '16px 18px',
-              }}
-            >
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  marginBottom: '8px',
-                }}
-              >
-                <h2
-                  style={{
-                    margin: 0,
-                    fontSize: '15px',
-                    fontWeight: 600,
-                    color: '#111827',
-                  }}
-                >
-                  Salesperson Totals
-                </h2>
-              </div>
-              {!salespersonField ? (
-                <div
-                  style={{
-                    padding: '16px 0',
-                    fontSize: '13px',
-                    color: '#6b7280',
-                    textAlign: 'center',
-                  }}
-                >
-                  Salesperson information is not available in the API response.
-                </div>
-              ) : salespersonTotals.length === 0 ? (
-                <div
-                  style={{
-                    padding: '16px 0',
-                    fontSize: '13px',
-                    color: '#6b7280',
-                    textAlign: 'center',
-                  }}
-                >
-                  No receivables for any salesperson.
-                </div>
-              ) : (
-                <div
-                  style={{
-                    marginTop: '8px',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '8px',
-                    maxHeight: '260px',
-                    overflowY: 'auto',
-                  }}
-                >
-                  {salespersonTotals.map((sp) => (
+            {/* Ageing buckets - configurable chart type (Bar/Pie/Treemap/Line) */}
+            {ageingChartType === 'bar' && (
+              <ChartCard isMobile={isMobile}>
+                <BarChart
+                  data={ageingChartData}
+                  formatValue={(v) => formatCurrency(v)}
+                  customHeader={
                     <div
-                      key={sp.name}
                       style={{
                         display: 'flex',
                         justifyContent: 'space-between',
                         alignItems: 'center',
-                        fontSize: '13px',
-                        padding: '6px 0',
-                        borderBottom: '1px solid #f3f4f6',
                       }}
                     >
-                      <span style={{ color: '#374151' }}>{sp.name}</span>
-                      <span style={{ color: '#111827', fontWeight: 500 }}>
-                        {formatCurrency(sp.amount)}
-                      </span>
+                      <h2
+                        style={{
+                          margin: 0,
+                          fontSize: '15px',
+                          fontWeight: 600,
+                          color: '#111827',
+                        }}
+                      >
+                        Ageing Buckets
+                      </h2>
+                      <IconButton
+                        size="small"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setCardMenuAnchors((prev) => ({
+                            ...prev,
+                            ageing: e.currentTarget,
+                          }));
+                        }}
+                        style={{
+                          padding: 4,
+                          color: '#64748b',
+                        }}
+                        title="Options"
+                      >
+                        <span
+                          className="material-icons"
+                          style={{ fontSize: '20px' }}
+                        >
+                          more_vert
+                        </span>
+                      </IconButton>
                     </div>
-                  ))}
+                  }
+                />
+              </ChartCard>
+            )}
+            {ageingChartType === 'pie' && (
+              <ChartCard isMobile={isMobile}>
+                <PieChart
+                  data={ageingChartData}
+                  formatValue={(v) => formatCurrency(v)}
+                  customHeader={
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <h2
+                        style={{
+                          margin: 0,
+                          fontSize: '15px',
+                          fontWeight: 600,
+                          color: '#111827',
+                        }}
+                      >
+                        Ageing Buckets
+                      </h2>
+                      <IconButton
+                        size="small"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setCardMenuAnchors((prev) => ({
+                            ...prev,
+                            ageing: e.currentTarget,
+                          }));
+                        }}
+                        style={{
+                          padding: 4,
+                          color: '#64748b',
+                        }}
+                        title="Options"
+                      >
+                        <span
+                          className="material-icons"
+                          style={{ fontSize: '20px' }}
+                        >
+                          more_vert
+                        </span>
+                      </IconButton>
+                    </div>
+                  }
+                />
+              </ChartCard>
+            )}
+            {ageingChartType === 'treemap' && (
+              <ChartCard isMobile={isMobile}>
+                <TreeMap
+                  data={ageingChartData}
+                  formatValue={(v) => formatCurrency(v)}
+                  customHeader={
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <h2
+                        style={{
+                          margin: 0,
+                          fontSize: '15px',
+                          fontWeight: 600,
+                          color: '#111827',
+                        }}
+                      >
+                        Ageing Buckets
+                      </h2>
+                      <IconButton
+                        size="small"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setCardMenuAnchors((prev) => ({
+                            ...prev,
+                            ageing: e.currentTarget,
+                          }));
+                        }}
+                        style={{
+                          padding: 4,
+                          color: '#64748b',
+                        }}
+                        title="Options"
+                      >
+                        <span
+                          className="material-icons"
+                          style={{ fontSize: '20px' }}
+                        >
+                          more_vert
+                        </span>
+                      </IconButton>
+                    </div>
+                  }
+                />
+              </ChartCard>
+            )}
+            {ageingChartType === 'line' && (
+              <ChartCard isMobile={isMobile}>
+                <LineChart
+                  data={ageingChartData}
+                  formatValue={(v) => formatCurrency(v)}
+                  customHeader={
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <h2
+                        style={{
+                          margin: 0,
+                          fontSize: '15px',
+                          fontWeight: 600,
+                          color: '#111827',
+                        }}
+                      >
+                        Ageing Buckets
+                      </h2>
+                      <IconButton
+                        size="small"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setCardMenuAnchors((prev) => ({
+                            ...prev,
+                            ageing: e.currentTarget,
+                          }));
+                        }}
+                        style={{
+                          padding: 4,
+                          color: '#64748b',
+                        }}
+                        title="Options"
+                      >
+                        <span
+                          className="material-icons"
+                          style={{ fontSize: '20px' }}
+                        >
+                          more_vert
+                        </span>
+                      </IconButton>
+                    </div>
+                  }
+                />
+              </ChartCard>
+            )}
+
+            {/* Salesperson totals - configurable chart type, or message if not available */}
+            <div>
+              {!salespersonField ? (
+                <div
+                  style={{
+                    background: 'white',
+                    borderRadius: '12px',
+                    border: '1px solid #e5e7eb',
+                    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.06)',
+                    padding: '16px 18px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    height: '100%',
+                    boxSizing: 'border-box',
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      marginBottom: '8px',
+                    }}
+                  >
+                    <h2
+                      style={{
+                        margin: 0,
+                        fontSize: '15px',
+                        fontWeight: 600,
+                        color: '#111827',
+                      }}
+                    >
+                      Salesperson Totals
+                    </h2>
+                    <IconButton
+                      size="small"
+                      disabled
+                      style={{
+                        padding: 4,
+                        color: '#cbd5f5',
+                      }}
+                      title="Options"
+                    >
+                      <span
+                        className="material-icons"
+                        style={{ fontSize: '20px' }}
+                      >
+                        more_vert
+                      </span>
+                    </IconButton>
+                  </div>
+                  <div
+                    style={{
+                      flex: 1,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '13px',
+                      color: '#6b7280',
+                      textAlign: 'center',
+                    }}
+                  >
+                    Salesperson information is not available in the API
+                    response.
+                  </div>
+                </div>
+              ) : salespersonTotals.length === 0 ? (
+                <div
+                  style={{
+                    background: 'white',
+                    borderRadius: '12px',
+                    border: '1px solid #e5e7eb',
+                    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.06)',
+                    padding: '16px 18px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    height: '100%',
+                    boxSizing: 'border-box',
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      marginBottom: '8px',
+                    }}
+                  >
+                    <h2
+                      style={{
+                        margin: 0,
+                        fontSize: '15px',
+                        fontWeight: 600,
+                        color: '#111827',
+                      }}
+                    >
+                      Salesperson Totals
+                    </h2>
+                    <IconButton
+                      size="small"
+                      disabled
+                      style={{
+                        padding: 4,
+                        color: '#cbd5f5',
+                      }}
+                      title="Options"
+                    >
+                      <span
+                        className="material-icons"
+                        style={{ fontSize: '20px' }}
+                      >
+                        more_vert
+                      </span>
+                    </IconButton>
+                  </div>
+                  <div
+                    style={{
+                      flex: 1,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '13px',
+                      color: '#6b7280',
+                      textAlign: 'center',
+                    }}
+                  >
+                    No receivables for any salesperson.
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {salespersonChartType === 'bar' && (
+                    <ChartCard isMobile={isMobile}>
+                      <BarChart
+                        data={salespersonTotals.map((sp) => ({
+                          label: sp.name,
+                          value: Math.abs(sp.value || 0),
+                        }))}
+                        formatValue={(v) => formatCurrency(v)}
+                        customHeader={
+                          <div
+                            style={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                            }}
+                          >
+                            <h2
+                              style={{
+                                margin: 0,
+                                fontSize: '15px',
+                                fontWeight: 600,
+                                color: '#111827',
+                              }}
+                            >
+                              Salesperson Totals
+                            </h2>
+                            <IconButton
+                              size="small"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setCardMenuAnchors((prev) => ({
+                                  ...prev,
+                                  salesperson: e.currentTarget,
+                                }));
+                              }}
+                              style={{
+                                padding: 4,
+                                color: '#64748b',
+                              }}
+                              title="Options"
+                            >
+                              <span
+                                className="material-icons"
+                                style={{ fontSize: '20px' }}
+                              >
+                                more_vert
+                              </span>
+                            </IconButton>
+                          </div>
+                        }
+                      />
+                    </ChartCard>
+                  )}
+                  {salespersonChartType === 'pie' && (
+                    <ChartCard isMobile={isMobile}>
+                      <PieChart
+                        data={salespersonTotals.map((sp) => ({
+                          label: sp.name,
+                          value: Math.abs(sp.value || 0),
+                        }))}
+                        formatValue={(v) => formatCurrency(v)}
+                        customHeader={
+                          <div
+                            style={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                            }}
+                          >
+                            <h2
+                              style={{
+                                margin: 0,
+                                fontSize: '15px',
+                                fontWeight: 600,
+                                color: '#111827',
+                              }}
+                            >
+                              Salesperson Totals
+                            </h2>
+                            <IconButton
+                              size="small"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setCardMenuAnchors((prev) => ({
+                                  ...prev,
+                                  salesperson: e.currentTarget,
+                                }));
+                              }}
+                              style={{
+                                padding: 4,
+                                color: '#64748b',
+                              }}
+                              title="Options"
+                            >
+                              <span
+                                className="material-icons"
+                                style={{ fontSize: '20px' }}
+                              >
+                                more_vert
+                              </span>
+                            </IconButton>
+                          </div>
+                        }
+                      />
+                    </ChartCard>
+                  )}
+                  {salespersonChartType === 'treemap' && (
+                    <ChartCard isMobile={isMobile}>
+                      <TreeMap
+                        data={salespersonTotals.map((sp) => ({
+                          label: sp.name,
+                          value: Math.abs(sp.value || 0),
+                        }))}
+                        formatValue={(v) => formatCurrency(v)}
+                        customHeader={
+                          <div
+                            style={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                            }}
+                          >
+                            <h2
+                              style={{
+                                margin: 0,
+                                fontSize: '15px',
+                                fontWeight: 600,
+                                color: '#111827',
+                              }}
+                            >
+                              Salesperson Totals
+                            </h2>
+                            <IconButton
+                              size="small"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setCardMenuAnchors((prev) => ({
+                                  ...prev,
+                                  salesperson: e.currentTarget,
+                                }));
+                              }}
+                              style={{
+                                padding: 4,
+                                color: '#64748b',
+                              }}
+                              title="Options"
+                            >
+                              <span
+                                className="material-icons"
+                                style={{ fontSize: '20px' }}
+                              >
+                                more_vert
+                              </span>
+                            </IconButton>
+                          </div>
+                        }
+                      />
+                    </ChartCard>
+                  )}
+                  {salespersonChartType === 'line' && (
+                    <ChartCard isMobile={isMobile}>
+                      <LineChart
+                        data={salespersonTotals.map((sp) => ({
+                          label: sp.name,
+                          value: Math.abs(sp.value || 0),
+                        }))}
+                        formatValue={(v) => formatCurrency(v)}
+                        customHeader={
+                          <div
+                            style={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                            }}
+                          >
+                            <h2
+                              style={{
+                                margin: 0,
+                                fontSize: '15px',
+                                fontWeight: 600,
+                                color: '#111827',
+                              }}
+                            >
+                              Salesperson Totals
+                            </h2>
+                            <IconButton
+                              size="small"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setCardMenuAnchors((prev) => ({
+                                  ...prev,
+                                  salesperson: e.currentTarget,
+                                }));
+                              }}
+                              style={{
+                                padding: 4,
+                                color: '#64748b',
+                              }}
+                              title="Options"
+                            >
+                              <span
+                                className="material-icons"
+                                style={{ fontSize: '20px' }}
+                              >
+                                more_vert
+                              </span>
+                            </IconButton>
+                          </div>
+                        }
+                      />
+                    </ChartCard>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Overdue in next 7 days */}
+            <div
+              style={{
+                background: 'white',
+                borderRadius: '12px',
+                border: '1px solid #e5e7eb',
+                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.06)',
+                padding: '16px 18px',
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  marginBottom: '8px',
+                }}
+              >
+                <h2
+                  style={{
+                    margin: 0,
+                    fontSize: '15px',
+                    fontWeight: 600,
+                    color: '#111827',
+                  }}
+                >
+                  Overdue in Next 7 Days
+                </h2>
+                <IconButton
+                  size="small"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setCardMenuAnchors((prev) => ({
+                      ...prev,
+                      overdue: e.currentTarget,
+                    }));
+                  }}
+                  style={{
+                    padding: 4,
+            color: '#64748b',
+                  }}
+                  title="Options"
+                >
+                  <span
+                    className="material-icons"
+                    style={{ fontSize: '20px' }}
+                  >
+                    more_vert
+                  </span>
+                </IconButton>
+                <div
+                  style={{
+                    fontSize: '12px',
+                    color: '#6b7280',
+                  }}
+                >
+                  {upcomingOverdue.length} bills
+                </div>
+              </div>
+              {upcomingOverdue.length === 0 ? (
+                <div
+                  style={{
+                    padding: '16px 0',
+                    fontSize: '13px',
+                    color: '#6b7280',
+                    textAlign: 'center',
+                  }}
+                >
+                  No bills becoming overdue in the next 7 days.
+                </div>
+              ) : (
+                <div
+                  style={{
+                    overflowX: 'auto',
+                    marginTop: '8px',
+                  }}
+                >
+                  <table
+                    style={{
+                      width: '100%',
+                      borderCollapse: 'collapse',
+            fontSize: '12px',
+                    }}
+                  >
+                    <thead>
+                      <tr
+                        style={{
+                          textAlign: 'left',
+                          backgroundColor: '#f9fafb',
+                          borderBottom: '1px solid #e5e7eb',
+                        }}
+                      >
+                        <th style={{ padding: '8px 6px', minWidth: '160px' }}>
+                          Customer
+                        </th>
+                        <th style={{ padding: '8px 6px', minWidth: '120px' }}>
+                          Bill No
+                        </th>
+                        <th style={{ padding: '8px 6px', minWidth: '100px' }}>
+                          Due On
+                        </th>
+                        <th style={{ padding: '8px 6px', minWidth: '80px' }}>
+                          In (Days)
+                        </th>
+                        <th
+                          style={{
+                            padding: '8px 6px',
+                            minWidth: '120px',
+                            textAlign: 'right',
+                          }}
+                        >
+                          Amount
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {upcomingOverdue.map((row, idx) => (
+                        <tr
+                          key={`${row.LEDGERNAME || row.REFNO || idx}-${idx}`}
+                          style={{
+                            borderBottom: '1px solid #f3f4f6',
+                            backgroundColor:
+                              idx % 2 === 0 ? 'white' : '#fafafa',
+                          }}
+                        >
+                          <td style={{ padding: '8px 6px' }}>
+                            {row.LEDGERNAME || '-'}
+                          </td>
+                          <td style={{ padding: '8px 6px' }}>
+                            {row.REFNO || '-'}
+                          </td>
+                          <td style={{ padding: '8px 6px' }}>
+                            {row.DUEON || row.DUEDATE || '-'}
+                          </td>
+                          <td style={{ padding: '8px 6px' }}>
+                            {row.daysUntilDue}
+                          </td>
+                          <td
+                            style={{
+                              padding: '8px 6px',
+                              textAlign: 'right',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {formatCurrency(row.amount)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </div>
           </div>
 
-          {/* Overdue in next 7 days */}
-          <div
-            style={{
-              background: 'white',
-              borderRadius: '12px',
-              border: '1px solid #e5e7eb',
-              boxShadow: '0 1px 3px rgba(0, 0, 0, 0.06)',
-              padding: '16px 18px',
-            }}
-          >
+          {/* Fullscreen overlay for cards */}
+          {fullscreenCard && (
             <div
               style={{
+                position: 'fixed',
+                inset: 0,
+                backgroundColor: 'rgba(15, 23, 42, 0.75)',
+                zIndex: 1500,
                 display: 'flex',
-                justifyContent: 'space-between',
                 alignItems: 'center',
-                marginBottom: '8px',
+                justifyContent: 'center',
               }}
+              onClick={() => setFullscreenCard(null)}
             >
-              <h2
-                style={{
-                  margin: 0,
-                  fontSize: '15px',
-                  fontWeight: 600,
-                  color: '#111827',
-                }}
-              >
-                Overdue in Next 7 Days
-              </h2>
               <div
                 style={{
-                  fontSize: '12px',
-                  color: '#6b7280',
+                  background: 'white',
+                  borderRadius: '16px',
+                  maxWidth: '1200px',
+                  width: '90vw',
+                  maxHeight: '80vh',
+                  padding: '20px 24px',
+                  boxShadow: '0 25px 50px rgba(0,0,0,0.25)',
+                  overflow: 'auto',
                 }}
+                onClick={(e) => e.stopPropagation()}
               >
-                {upcomingOverdue.length} bills
-              </div>
-            </div>
-            {upcomingOverdue.length === 0 ? (
-              <div
-                style={{
-                  padding: '16px 0',
-                  fontSize: '13px',
-                  color: '#6b7280',
-                  textAlign: 'center',
-                }}
-              >
-                No bills becoming overdue in the next 7 days.
-              </div>
-            ) : (
-              <div
-                style={{
-                  overflowX: 'auto',
-                  marginTop: '8px',
-                }}
-              >
-                <table
+                <div
                   style={{
-                    width: '100%',
-                    borderCollapse: 'collapse',
-                    fontSize: '12px',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    marginBottom: '12px',
                   }}
                 >
-                  <thead>
-                    <tr
-                      style={{
-                        textAlign: 'left',
-                        backgroundColor: '#f9fafb',
-                        borderBottom: '1px solid #e5e7eb',
-                      }}
+                  <h2
+                    style={{
+                      margin: 0,
+                      fontSize: '18px',
+                      fontWeight: 600,
+                      color: '#111827',
+                    }}
+                  >
+                    {fullscreenCard === 'ageing' && 'Ageing Buckets'}
+                    {fullscreenCard === 'salesperson' && 'Salesperson Totals'}
+                    {fullscreenCard === 'overdue' && 'Overdue in Next 7 Days'}
+                  </h2>
+                  <button
+                    type="button"
+                    onClick={() => setFullscreenCard(null)}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      cursor: 'pointer',
+                      padding: 0,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <span
+                      className="material-icons"
+                      style={{ fontSize: '22px', color: '#4b5563' }}
                     >
-                      <th style={{ padding: '8px 6px', minWidth: '160px' }}>
-                        Customer
-                      </th>
-                      <th style={{ padding: '8px 6px', minWidth: '120px' }}>
-                        Bill No
-                      </th>
-                      <th style={{ padding: '8px 6px', minWidth: '100px' }}>
-                        Due On
-                      </th>
-                      <th style={{ padding: '8px 6px', minWidth: '80px' }}>
-                        In (Days)
-                      </th>
-                      <th style={{ padding: '8px 6px', minWidth: '120px', textAlign: 'right' }}>
-                        Amount
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {upcomingOverdue.map((row, idx) => (
-                      <tr
-                        key={`${row.LEDGERNAME || row.REFNO || idx}-${idx}`}
+                      close
+                    </span>
+                  </button>
+                </div>
+
+                {fullscreenCard === 'ageing' && (
+                  <div style={{ marginTop: '8px' }}>
+                    {ageingBuckets.length === 0 ? (
+                      <div
                         style={{
-                          borderBottom: '1px solid #f3f4f6',
-                          backgroundColor: idx % 2 === 0 ? 'white' : '#fafafa',
+                          padding: '24px 0',
+                          fontSize: '14px',
+                          color: '#6b7280',
+                          textAlign: 'center',
                         }}
                       >
-                        <td style={{ padding: '8px 6px' }}>
-                          {row.LEDGERNAME || '-'}
-                        </td>
-                        <td style={{ padding: '8px 6px' }}>{row.REFNO || '-'}</td>
-                        <td style={{ padding: '8px 6px' }}>
-                          {row.DUEON || row.DUEDATE || '-'}
-                        </td>
-                        <td style={{ padding: '8px 6px' }}>
-                          {row.daysUntilDue}
-                        </td>
-                        <td
+                        No receivables data.
+                      </div>
+                    ) : (
+                      <div
+                        style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '10px',
+                          marginTop: '8px',
+                        }}
+                      >
+                        {ageingBuckets.map((bucket) => {
+                          const pct =
+                            totalOutstanding > 0
+                              ? Math.max(
+                                  2,
+                                  Math.min(
+                                    100,
+                                    (Math.abs(bucket.amount) /
+                                      Math.abs(totalOutstanding)) *
+                                      100
+                                  )
+                                )
+                              : 0;
+                          return (
+                            <div key={bucket.key}>
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  justifyContent: 'space-between',
+                                  fontSize: '14px',
+                                  marginBottom: '4px',
+                                  color: '#374151',
+                                }}
+                              >
+                                <span>{bucket.label}</span>
+                                <span>{formatCurrency(bucket.amount)}</span>
+                              </div>
+                              <div
+                                style={{
+                                  height: '10px',
+                                  borderRadius: '9999px',
+                                  background: '#e5e7eb',
+                                  overflow: 'hidden',
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    width: `${pct}%`,
+                                    height: '100%',
+                                    borderRadius: '9999px',
+                                    background:
+                                      bucket.key === '>180'
+                                        ? '#b91c1c'
+                                        : bucket.key === '91-180'
+                                        ? '#f97316'
+                                        : '#0ea5e9',
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {fullscreenCard === 'salesperson' && (
+                  <div style={{ marginTop: '8px' }}>
+                    {!salespersonField ? (
+                      <div
+                        style={{
+                          padding: '24px 0',
+                          fontSize: '14px',
+                          color: '#6b7280',
+                          textAlign: 'center',
+                        }}
+                      >
+                        Salesperson information is not available in the API
+                        response.
+                      </div>
+                    ) : salespersonTotals.length === 0 ? (
+                      <div
+                        style={{
+                          padding: '24px 0',
+                          fontSize: '14px',
+                          color: '#6b7280',
+                          textAlign: 'center',
+                        }}
+                      >
+                        No receivables for any salesperson.
+                      </div>
+                    ) : (
+                      <div
+                        style={{
+                          marginTop: '8px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '10px',
+                        }}
+                      >
+                        {salespersonTotals.map((sp) => (
+                          <div
+                            key={sp.name}
+                            style={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              fontSize: '14px',
+                              padding: '8px 0',
+                              borderBottom: '1px solid #f3f4f6',
+                            }}
+                          >
+                            <span style={{ color: '#374151' }}>{sp.name}</span>
+                            <span
+                              style={{
+                                color: '#111827',
+                                fontWeight: 500,
+                              }}
+                            >
+                              {formatCurrency(sp.value)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {fullscreenCard === 'overdue' && (
+                  <div style={{ marginTop: '8px' }}>
+                    {upcomingOverdue.length === 0 ? (
+                      <div
+                        style={{
+                          padding: '24px 0',
+                          fontSize: '14px',
+                          color: '#6b7280',
+                          textAlign: 'center',
+                        }}
+                      >
+                        No bills becoming overdue in the next 7 days.
+                      </div>
+                    ) : (
+                      <div
+                        style={{
+                          overflowX: 'auto',
+                          marginTop: '8px',
+                        }}
+                      >
+                        <table
                           style={{
-                            padding: '8px 6px',
-                            textAlign: 'right',
-                            whiteSpace: 'nowrap',
+                            width: '100%',
+                            borderCollapse: 'collapse',
+                            fontSize: '13px',
                           }}
                         >
-                          {formatCurrency(row.amount)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                          <thead>
+                            <tr
+                              style={{
+                                textAlign: 'left',
+                                backgroundColor: '#f9fafb',
+                                borderBottom: '1px solid #e5e7eb',
+                              }}
+                            >
+                              <th
+                                style={{ padding: '8px 6px', minWidth: '200px' }}
+                              >
+                                Customer
+                              </th>
+                              <th
+                                style={{ padding: '8px 6px', minWidth: '140px' }}
+                              >
+                                Bill No
+                              </th>
+                              <th
+                                style={{ padding: '8px 6px', minWidth: '120px' }}
+                              >
+                                Due On
+                              </th>
+                              <th
+                                style={{ padding: '8px 6px', minWidth: '100px' }}
+                              >
+                                In (Days)
+                              </th>
+                              <th
+                                style={{
+                                  padding: '8px 6px',
+                                  minWidth: '140px',
+                                  textAlign: 'right',
+                                }}
+                              >
+                                Amount
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {upcomingOverdue.map((row, idx) => (
+                              <tr
+                                key={`${row.LEDGERNAME || row.REFNO || idx}-${idx}`}
+                                style={{
+                                  borderBottom: '1px solid #f3f4f6',
+                                  backgroundColor:
+                                    idx % 2 === 0 ? 'white' : '#fafafa',
+                                }}
+                              >
+                                <td style={{ padding: '8px 6px' }}>
+                                  {row.LEDGERNAME || '-'}
+                                </td>
+                                <td style={{ padding: '8px 6px' }}>
+                                  {row.REFNO || '-'}
+                                </td>
+                                <td style={{ padding: '8px 6px' }}>
+                                  {row.DUEON || row.DUEDATE || '-'}
+                                </td>
+                                <td style={{ padding: '8px 6px' }}>
+                                  {row.daysUntilDue}
+                                </td>
+                                <td
+                                  style={{
+                                    padding: '8px 6px',
+                                    textAlign: 'right',
+                                    whiteSpace: 'nowrap',
+                                  }}
+                                >
+                                  {formatCurrency(row.amount)}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-        </div>
+            </div>
+          )}
+
+          {/* Options menus for each card (currently only Fullscreen) */}
+          <Menu
+            anchorEl={cardMenuAnchors.ageing}
+            open={Boolean(cardMenuAnchors.ageing)}
+            onClose={() =>
+              setCardMenuAnchors((prev) => ({ ...prev, ageing: null }))
+            }
+            anchorOrigin={{
+              vertical: 'bottom',
+              horizontal: 'right',
+            }}
+            transformOrigin={{
+              vertical: 'top',
+              horizontal: 'right',
+            }}
+          >
+            <MenuItem
+              onClick={(e) => {
+                e.stopPropagation();
+                setCardMenuAnchors((prev) => ({ ...prev, ageing: null }));
+                setFullscreenCard('ageing');
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                }}
+              >
+                <span
+                  className="material-icons"
+                  style={{ fontSize: '18px', color: '#64748b' }}
+                >
+                  fullscreen
+                </span>
+                <span style={{ fontSize: '14px', color: '#374151' }}>
+                  Fullscreen
+                </span>
+              </div>
+            </MenuItem>
+            <MenuItem
+              onClick={(e) => {
+                e.stopPropagation();
+                setCardMenuAnchors((prev) => ({ ...prev, ageing: null }));
+              }}
+              style={{ cursor: 'default', padding: '8px 16px' }}
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '150px' }}>
+                <label
+                  style={{
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    color: '#64748b',
+                    marginBottom: '4px',
+                  }}
+                >
+                  Chart Type
+                </label>
+                <select
+                  value={ageingChartType}
+                  onChange={(e) => {
+                    setAgeingChartType(e.target.value);
+                    setCardMenuAnchors((prev) => ({ ...prev, ageing: null }));
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                  style={{
+                    padding: '6px 12px',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '6px',
+                    fontSize: '12px',
+                    background: 'white',
+                    color: '#374151',
+                    width: '100%',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <option value="bar">Bar</option>
+                  <option value="pie">Pie</option>
+                  <option value="treemap">Tree Map</option>
+                  <option value="line">Line</option>
+                </select>
+              </div>
+            </MenuItem>
+          </Menu>
+
+          <Menu
+            anchorEl={cardMenuAnchors.salesperson}
+            open={Boolean(cardMenuAnchors.salesperson)}
+            onClose={() =>
+              setCardMenuAnchors((prev) => ({ ...prev, salesperson: null }))
+            }
+            anchorOrigin={{
+              vertical: 'bottom',
+              horizontal: 'right',
+            }}
+            transformOrigin={{
+              vertical: 'top',
+              horizontal: 'right',
+            }}
+          >
+            <MenuItem
+              onClick={(e) => {
+                e.stopPropagation();
+                setCardMenuAnchors((prev) => ({ ...prev, salesperson: null }));
+                setFullscreenCard('salesperson');
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                }}
+              >
+                <span
+                  className="material-icons"
+                  style={{ fontSize: '18px', color: '#64748b' }}
+                >
+                  fullscreen
+                </span>
+                <span style={{ fontSize: '14px', color: '#374151' }}>
+                  Fullscreen
+                </span>
+              </div>
+            </MenuItem>
+            <MenuItem
+              onClick={(e) => {
+                e.stopPropagation();
+                setCardMenuAnchors((prev) => ({ ...prev, salesperson: null }));
+              }}
+              style={{ cursor: 'default', padding: '8px 16px' }}
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '4px',
+                  minWidth: '150px',
+                }}
+              >
+                <label
+                  style={{
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    color: '#64748b',
+                    marginBottom: '4px',
+                  }}
+                >
+                  Chart Type
+                </label>
+                <select
+                  value={salespersonChartType}
+                  onChange={(e) => {
+                    setSalespersonChartType(e.target.value);
+                    setCardMenuAnchors((prev) => ({
+                      ...prev,
+                      salesperson: null,
+                    }));
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                  style={{
+                    padding: '6px 12px',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '6px',
+                    fontSize: '12px',
+                    background: 'white',
+                    color: '#374151',
+                    width: '100%',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <option value="bar">Bar</option>
+                  <option value="pie">Pie</option>
+                  <option value="treemap">Tree Map</option>
+                  <option value="line">Line</option>
+                </select>
+              </div>
+            </MenuItem>
+          </Menu>
+
+          <Menu
+            anchorEl={cardMenuAnchors.overdue}
+            open={Boolean(cardMenuAnchors.overdue)}
+            onClose={() =>
+              setCardMenuAnchors((prev) => ({ ...prev, overdue: null }))
+            }
+            anchorOrigin={{
+              vertical: 'bottom',
+              horizontal: 'right',
+            }}
+            transformOrigin={{
+              vertical: 'top',
+              horizontal: 'right',
+            }}
+          >
+            <MenuItem
+              onClick={(e) => {
+                e.stopPropagation();
+                setCardMenuAnchors((prev) => ({ ...prev, overdue: null }));
+                setFullscreenCard('overdue');
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                }}
+              >
+                <span
+                  className="material-icons"
+                  style={{ fontSize: '18px', color: '#64748b' }}
+                >
+                  fullscreen
+                </span>
+                <span style={{ fontSize: '14px', color: '#374151' }}>
+                  Fullscreen
+                </span>
+              </div>
+            </MenuItem>
+          </Menu>
       </div>
+    </div>
     </>
   );
 };
