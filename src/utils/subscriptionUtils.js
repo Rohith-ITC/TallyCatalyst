@@ -119,3 +119,84 @@ export const dismissTrialReminder = async (reminderType = '7_day') => {
   }
 };
 
+/**
+ * Calculate tiered pricing based on user count
+ * Each user is charged based on the slab they fall into based on their position
+ * Example: 3 users = 1st user (₹375) + 2nd-3rd users (₹300 × 2) = ₹975
+ * @param {Array} slabs - Array of slab objects with min_users, max_users, monthly_price, yearly_price
+ * @param {number} userCount - Total number of users
+ * @param {string} billingCycle - 'monthly' or 'yearly'
+ * @returns {Object} Object with totalAmount, breakdown (array of {slab, users, price})
+ */
+export const calculateTieredPricing = (slabs, userCount, billingCycle = 'monthly') => {
+  if (!slabs || slabs.length === 0 || !userCount || userCount < 1) {
+    return { totalAmount: 0, breakdown: [] };
+  }
+
+  // Sort slabs by min_users ascending
+  const sortedSlabs = [...slabs].sort((a, b) => (a.min_users || 0) - (b.min_users || 0));
+  
+  // Helper function to find which slab a user position falls into
+  const findSlabForUserPosition = (userPosition) => {
+    // Check slabs in reverse order (highest to lowest) to find the first match
+    for (let i = sortedSlabs.length - 1; i >= 0; i--) {
+      const slab = sortedSlabs[i];
+      const minUsers = slab.min_users || 1;
+      const maxUsers = slab.max_users || minUsers;
+      
+      if (userPosition >= minUsers && userPosition <= maxUsers) {
+        return slab;
+      }
+    }
+    
+    // If user position exceeds all slabs, use the highest slab
+    if (sortedSlabs.length > 0) {
+      return sortedSlabs[sortedSlabs.length - 1];
+    }
+    
+    return null;
+  };
+
+  // Group users by their slab
+  const slabGroups = {};
+  
+  // For each user position (1 to userCount), find which slab they belong to
+  for (let userPos = 1; userPos <= userCount; userPos++) {
+    const slab = findSlabForUserPosition(userPos);
+    if (slab) {
+      const slabId = slab.id || JSON.stringify(slab);
+      if (!slabGroups[slabId]) {
+        slabGroups[slabId] = {
+          slab: slab,
+          users: 0,
+          pricePerUser: billingCycle === 'yearly' 
+            ? (slab.yearly_price || 0) 
+            : (slab.monthly_price || 0)
+        };
+      }
+      slabGroups[slabId].users++;
+    }
+  }
+
+  // Calculate total and create breakdown
+  let totalAmount = 0;
+  const breakdown = [];
+  
+  for (const slabId in slabGroups) {
+    const group = slabGroups[slabId];
+    const slabTotal = group.users * group.pricePerUser;
+    totalAmount += slabTotal;
+    breakdown.push({
+      slab: group.slab,
+      users: group.users,
+      pricePerUser: group.pricePerUser,
+      total: slabTotal
+    });
+  }
+
+  return {
+    totalAmount: Math.round(totalAmount * 100) / 100, // Round to 2 decimal places
+    breakdown: breakdown
+  };
+};
+

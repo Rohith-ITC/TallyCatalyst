@@ -157,7 +157,8 @@ function App() {
     setShowTallyConfig(show);
   };
   
-  // Get basename from environment variable or use /Development as default (matches package.json homepage)
+  // Get basename from environment variable or use empty string as default (matches package.json homepage)
+  //const basename = process.env.REACT_APP_HOMEPAGE || process.env.PUBLIC_URL || '/Development';
   const basename = process.env.REACT_APP_HOMEPAGE || process.env.PUBLIC_URL || '';
   
   return (
