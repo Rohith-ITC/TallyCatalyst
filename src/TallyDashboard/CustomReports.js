@@ -683,6 +683,19 @@ const CustomReports = () => {
     if (fieldNameLower.startsWith('allinventoryentries.')) {
       const subField = fieldNameLower.substring('allinventoryentries.'.length);
 
+      // If this row already has a concrete value stored for this exact field key
+      // (e.g. rows built for the report table use "allinventoryentries.amount"
+      // as the key), return it directly. This is crucial so that pivot
+      // aggregation works on the pre-computed values instead of trying to
+      // re-derive them from the flattened item, where "amount" lives.
+      const directKeyValue =
+        item[fieldName] ??
+        item[fieldNameLower] ??
+        item[fieldName.toUpperCase()];
+      if (directKeyValue !== undefined && directKeyValue !== null) {
+        return directKeyValue;
+      }
+
       if (subField === 'item' || subField === 'stockitemname') {
         return item.stockitemname || item.item || item.stockitemnameid || item.itemid || null;
       }
@@ -761,6 +774,17 @@ const CustomReports = () => {
     // Special handling for inventoryentries.* (same as allinventoryentries.*)
     if (fieldNameLower.startsWith('inventoryentries.')) {
       const subField = fieldNameLower.substring('inventoryentries.'.length);
+
+      // Same as above: if the row already has a value stored under the
+      // "inventoryentries.xxx" field key, use it directly (important for
+      // pivoting over report rows instead of raw salesData items).
+      const directKeyValue =
+        item[fieldName] ??
+        item[fieldNameLower] ??
+        item[fieldName.toUpperCase()];
+      if (directKeyValue !== undefined && directKeyValue !== null) {
+        return directKeyValue;
+      }
 
       if (subField === 'item' || subField === 'stockitemname') {
         return item.stockitemname || item.item || item.stockitemnameid || item.itemid || null;
