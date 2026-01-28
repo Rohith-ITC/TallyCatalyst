@@ -8,6 +8,7 @@ import PlaceOrder from './PlaceOrder';
 import PlaceOrder_ECommerce from './PlaceOrder_ECommerce';
 import SalesDashboard from './salesdashboard/SalesDashboard';
 import ReceivablesDashboard from '../RecvDashboard';
+import ReceivablesDashboardNew from './receivablesdashboard/ReceivablesDashboard';
 import VoucherAuthorization from './vchauth';
 import ReceiptListScreenWrapper from './ReceiptListScreenWrapper';
 import CompanyOrdersScreenWrapper from './CompanyOrdersScreenWrapper';
@@ -3327,6 +3328,11 @@ function TallyDashboard() {
             {activeSidebar === 'receivables_dashboard' && (
               <div style={{ margin: '-20px', padding: '0' }}>
                 <ReceivablesDashboard company={currentReceivablesCompany} />
+              </div>
+            )}
+            {activeSidebar === 'receivables_dashboard_new' && (
+              <div style={{ margin: '-20px', padding: '0' }}>
+                <ReceivablesDashboardNew company={currentReceivablesCompany} />
               </div>
             )}
             {activeSidebar === 'vendor_expenses' && (

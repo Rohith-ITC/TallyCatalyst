@@ -12,7 +12,8 @@ const CustomReports = () => {
   const [selectedReport, setSelectedReport] = useState(null);
   const [reportData, setReportData] = useState({ rows: [], columns: [] });
   const [showReportModal, setShowReportModal] = useState(false);
-  const [reportSearch, setReportSearch] = useState('');
+  const [reportSearch, setReportSearch] = useState(''); // For searching in reports list
+  const [tableSearch, setTableSearch] = useState(''); // For searching across table columns
   const [reportPage, setReportPage] = useState(1);
   const [reportPageSize, setReportPageSize] = useState(20);
   const [reportPageInput, setReportPageInput] = useState('1');
@@ -693,7 +694,139 @@ const CustomReports = () => {
       if (subField === 'amount' || subField === 'value') {
         return item.amount || item.value || null;
       }
+      
+      // Handle batchallocation.* fields - batchallocation is an array within each inventory entry
+      // We need to handle it from the current item, not from the voucher
+      if (subField.startsWith('batchallocation.')) {
+        const batchField = subField.substring('batchallocation.'.length);
+        // Try to get batchallocation array from the current item
+        const batchAllocations = item.batchallocation || item.batchAllocation || item.batch_allocation || [];
+        
+        if (Array.isArray(batchAllocations) && batchAllocations.length > 0) {
+          // For quantity/amount fields, sum all batch allocations
+          // For other fields, take the first one
+          if (batchField === 'actualqty' || batchField === 'quantity' || batchField === 'qty' || 
+              batchField === 'amount' || batchField === 'value') {
+            let total = 0;
+            batchAllocations.forEach(batch => {
+              const val = batch[batchField] || batch[batchField.toLowerCase()] || batch[batchField.toUpperCase()];
+              if (val != null) {
+                const numVal = typeof val === 'number' ? val : parseFloat(val);
+                if (!isNaN(numVal)) {
+                  total += numVal;
+                }
+              }
+            });
+            return total > 0 ? total : null;
+          } else {
+            // For non-quantity fields, take the first batch allocation's value
+            const firstBatch = batchAllocations[0];
+            return firstBatch[batchField] || firstBatch[batchField.toLowerCase()] || firstBatch[batchField.toUpperCase()] || null;
+          }
+        }
+        return null;
+      }
+      
+      // Handle accalloc.* and accountingallocation.* fields - these are also arrays within inventory entries
+      if (subField.startsWith('accalloc.') || subField.startsWith('accountingallocation.')) {
+        const allocFieldName = subField.startsWith('accalloc.') ? 'accalloc' : 'accountingallocation';
+        const allocField = subField.substring(allocFieldName.length + 1); // +1 for the dot
+        const allocations = item[allocFieldName] || item[allocFieldName.toLowerCase()] || item[allocFieldName.toUpperCase()] || [];
+        
+        if (Array.isArray(allocations) && allocations.length > 0) {
+          // For quantity/amount fields, sum all allocations; for others, take first
+          if (allocField === 'amount' || allocField === 'value' || allocField === 'quantity' || allocField === 'qty') {
+            let total = 0;
+            allocations.forEach(alloc => {
+              const val = alloc[allocField] || alloc[allocField.toLowerCase()] || alloc[allocField.toUpperCase()];
+              if (val != null) {
+                const numVal = typeof val === 'number' ? val : parseFloat(val);
+                if (!isNaN(numVal)) {
+                  total += numVal;
+                }
+              }
+            });
+            return total > 0 ? total : null;
+          } else {
+            const firstAlloc = allocations[0];
+            return firstAlloc[allocField] || firstAlloc[allocField.toLowerCase()] || firstAlloc[allocField.toUpperCase()] || null;
+          }
+        }
+        return null;
+      }
+      
       // For any other subfields, fall through to the generic nested-field logic below
+    }
+    
+    // Special handling for inventoryentries.* (same as allinventoryentries.*)
+    if (fieldNameLower.startsWith('inventoryentries.')) {
+      const subField = fieldNameLower.substring('inventoryentries.'.length);
+
+      if (subField === 'item' || subField === 'stockitemname') {
+        return item.stockitemname || item.item || item.stockitemnameid || item.itemid || null;
+      }
+
+      if (subField === 'quantity' || subField === 'qty' || subField === 'billedqty' || subField === 'actualqty') {
+        return item.quantity || item.qty || item.billedqty || item.actualqty || null;
+      }
+
+      if (subField === 'amount' || subField === 'value') {
+        return item.amount || item.value || null;
+      }
+      
+      // Handle batchallocation.* fields
+      if (subField.startsWith('batchallocation.')) {
+        const batchField = subField.substring('batchallocation.'.length);
+        const batchAllocations = item.batchallocation || item.batchAllocation || item.batch_allocation || [];
+        
+        if (Array.isArray(batchAllocations) && batchAllocations.length > 0) {
+          if (batchField === 'actualqty' || batchField === 'quantity' || batchField === 'qty' || 
+              batchField === 'amount' || batchField === 'value') {
+            let total = 0;
+            batchAllocations.forEach(batch => {
+              const val = batch[batchField] || batch[batchField.toLowerCase()] || batch[batchField.toUpperCase()];
+              if (val != null) {
+                const numVal = typeof val === 'number' ? val : parseFloat(val);
+                if (!isNaN(numVal)) {
+                  total += numVal;
+                }
+              }
+            });
+            return total > 0 ? total : null;
+          } else {
+            const firstBatch = batchAllocations[0];
+            return firstBatch[batchField] || firstBatch[batchField.toLowerCase()] || firstBatch[batchField.toUpperCase()] || null;
+          }
+        }
+        return null;
+      }
+      
+      // Handle accalloc.* and accountingallocation.* fields
+      if (subField.startsWith('accalloc.') || subField.startsWith('accountingallocation.')) {
+        const allocFieldName = subField.startsWith('accalloc.') ? 'accalloc' : 'accountingallocation';
+        const allocField = subField.substring(allocFieldName.length + 1);
+        const allocations = item[allocFieldName] || item[allocFieldName.toLowerCase()] || item[allocFieldName.toUpperCase()] || [];
+        
+        if (Array.isArray(allocations) && allocations.length > 0) {
+          if (allocField === 'amount' || allocField === 'value' || allocField === 'quantity' || allocField === 'qty') {
+            let total = 0;
+            allocations.forEach(alloc => {
+              const val = alloc[allocField] || alloc[allocField.toLowerCase()] || alloc[allocField.toUpperCase()];
+              if (val != null) {
+                const numVal = typeof val === 'number' ? val : parseFloat(val);
+                if (!isNaN(numVal)) {
+                  total += numVal;
+                }
+              }
+            });
+            return total > 0 ? total : null;
+          } else {
+            const firstAlloc = allocations[0];
+            return firstAlloc[allocField] || firstAlloc[allocField.toLowerCase()] || firstAlloc[allocField.toUpperCase()] || null;
+          }
+        }
+        return null;
+      }
     }
     
     // Handle nested field paths (existing logic)
@@ -725,12 +858,72 @@ const CustomReports = () => {
       if (value !== null && value !== undefined) return value;
       
       // If nested field not found in item, try voucher lookup map
+      // For voucher-level arrays like ledgerentries.billallocations.*, we need special handling
       const masterid = item.masterid || item.mstid;
       if (masterid && window.__voucherLookupMap) {
         const voucher = window.__voucherLookupMap.get(String(masterid));
         if (voucher) {
+          // Handle ledgerentries.billallocations.* - billallocations is an array within ledgerentries
+          if (fieldNameLower.startsWith('ledgerentries.billallocations.') || 
+              fieldNameLower.startsWith('allledgerentries.billallocations.')) {
+            const billField = fieldNameLower.includes('billallocations.') 
+              ? fieldNameLower.split('billallocations.')[1] 
+              : null;
+            if (billField) {
+              const ledgerEntries = voucher.ledgerentries || voucher.allledgerentries || voucher.ledgers || [];
+              if (Array.isArray(ledgerEntries) && ledgerEntries.length > 0) {
+                // Sum billallocations.amount across all ledger entries
+                if (billField === 'amount' || billField === 'value') {
+                  let total = 0;
+                  ledgerEntries.forEach(ledger => {
+                    const billAllocs = ledger.billallocations || ledger.billAllocations || [];
+                    if (Array.isArray(billAllocs)) {
+                      billAllocs.forEach(bill => {
+                        const val = bill[billField] || bill[billField.toLowerCase()] || bill[billField.toUpperCase()];
+                        if (val != null) {
+                          const numVal = typeof val === 'number' ? val : parseFloat(val);
+                          if (!isNaN(numVal)) {
+                            total += numVal;
+                          }
+                        }
+                      });
+                    }
+                  });
+                  return total > 0 ? total : null;
+                } else {
+                  // For non-amount fields, take first billallocation from first ledger entry
+                  const firstLedger = ledgerEntries[0];
+                  const billAllocs = firstLedger?.billallocations || firstLedger?.billAllocations || [];
+                  if (Array.isArray(billAllocs) && billAllocs.length > 0) {
+                    const firstBill = billAllocs[0];
+                    return firstBill[billField] || firstBill[billField.toLowerCase()] || firstBill[billField.toUpperCase()] || null;
+                  }
+                }
+              }
+            }
+          }
+          
+          // Try generic nested field access
           const voucherValue = getNestedFieldValue(voucher, fieldName);
           if (voucherValue !== null && voucherValue !== undefined) {
+            // If the value is an array, take the first element or sum if numeric
+            if (Array.isArray(voucherValue) && voucherValue.length > 0) {
+              // For numeric fields, sum the array; for others, take first
+              const fieldLower = fieldName.toLowerCase();
+              if (fieldLower.includes('amount') || fieldLower.includes('value') || 
+                  fieldLower.includes('quantity') || fieldLower.includes('qty')) {
+                let total = 0;
+                voucherValue.forEach(val => {
+                  const numVal = typeof val === 'number' ? val : parseFloat(val);
+                  if (!isNaN(numVal)) {
+                    total += numVal;
+                  }
+                });
+                return total > 0 ? total : null;
+              } else {
+                return voucherValue[0];
+              }
+            }
             return voucherValue;
           }
         }
@@ -962,22 +1155,60 @@ const CustomReports = () => {
     })).sort((a, b) => a.label.localeCompare(b.label));
   }, [reportData]);
 
+  // Helper to check if a field is voucher-level (same value for all items in a voucher)
+  const isVoucherLevelField = useCallback((field) => {
+    if (!field || typeof field !== 'string') return false;
+    const fieldLower = field.toLowerCase();
+    // Fields from ledgerentries, billallocations, accountingallocation, batchallocation
+    // are voucher-level, not item-level
+    return fieldLower.includes('ledgerentries') || 
+           fieldLower.includes('billallocations') ||
+           fieldLower.includes('accountingallocation') ||
+           fieldLower.includes('batchallocation');
+  }, []);
+
   // Aggregate values helper
   const aggregateValues = useCallback((items, field, aggregation) => {
     if (!items || items.length === 0) return 0;
     
-    const values = items.map(item => {
-      const val = getFieldValue(item, field);
-      if (val == null || val === '') return null;
-      const numVal = typeof val === 'number' ? val : parseFloat(val);
-      return isNaN(numVal) ? null : numVal;
-    }).filter(v => v != null);
+    // For voucher-level fields, deduplicate by voucher to avoid counting same voucher multiple times
+    const isVoucherLevel = isVoucherLevelField(field);
+    let values;
+    
+    if (isVoucherLevel) {
+      // Group by voucher (masterid) and get value once per voucher
+      const voucherValues = new Map(); // masterid -> value
+      
+      items.forEach(item => {
+        const masterid = item.masterid || item.mstid || item.__masterid;
+        if (masterid && !voucherValues.has(String(masterid))) {
+          const val = getFieldValue(item, field);
+          if (val != null && val !== '') {
+            const numVal = typeof val === 'number' ? val : parseFloat(val);
+            if (!isNaN(numVal)) {
+              voucherValues.set(String(masterid), numVal);
+            }
+          }
+        }
+      });
+      
+      values = Array.from(voucherValues.values());
+    } else {
+      // For item-level fields, get value from each item normally
+      values = items.map(item => {
+        const val = getFieldValue(item, field);
+        if (val == null || val === '') return null;
+        const numVal = typeof val === 'number' ? val : parseFloat(val);
+        return isNaN(numVal) ? null : numVal;
+      }).filter(v => v != null);
+    }
 
     switch(aggregation) {
       case 'sum':
         return values.reduce((a, b) => a + b, 0);
       case 'count':
-        return items.length;
+        // For voucher-level fields, count unique vouchers; for item-level, count items
+        return isVoucherLevel ? values.length : items.length;
       case 'average':
         return values.length > 0 ? values.reduce((a, b) => a + b, 0) / values.length : 0;
       case 'min':
@@ -985,14 +1216,19 @@ const CustomReports = () => {
       case 'max':
         return values.length > 0 ? Math.max(...values) : 0;
       case 'distinctCount':
-        return new Set(items.map(item => {
-          const val = getFieldValue(item, field);
-          return val != null ? String(val) : '';
-        }).filter(v => v !== '')).size;
+        if (isVoucherLevel) {
+          // For voucher-level fields, count unique voucher values
+          return new Set(values.map(v => String(v)).filter(v => v !== '')).size;
+        } else {
+          return new Set(items.map(item => {
+            const val = getFieldValue(item, field);
+            return val != null ? String(val) : '';
+          }).filter(v => v !== '')).size;
+        }
       default:
         return values.reduce((a, b) => a + b, 0);
     }
-  }, []);
+  }, [isVoucherLevelField]);
 
   // Pivot Table Generation Function
   const generatePivotTable = useCallback((data, config, getFieldTypeFn, parseDateFn) => {
@@ -1403,23 +1639,46 @@ const CustomReports = () => {
     }
 
     const trimmedName = name.trim();
-    const newPivot = {
-      id: Date.now().toString(),
-      name: trimmedName,
-      config: pivotConfig
-    };
+    const existingSavedPivots = selectedReport.savedPivots || [];
+    
+    // Check if a pivot with the same name already exists
+    const existingPivotIndex = existingSavedPivots.findIndex(p => p.name === trimmedName);
+    
+    let updatedSavedPivots;
+    
+    if (existingPivotIndex !== -1) {
+      // Pivot with same name exists - prompt for overwrite
+      const shouldOverwrite = window.confirm(
+        `A pivot view with the name "${trimmedName}" already exists.\n\nDo you want to overwrite it?`
+      );
+      
+      if (!shouldOverwrite) {
+        return; // User cancelled
+      }
+      
+      // Overwrite existing pivot
+      updatedSavedPivots = [...existingSavedPivots];
+      updatedSavedPivots[existingPivotIndex] = {
+        ...updatedSavedPivots[existingPivotIndex],
+        name: trimmedName,
+        config: pivotConfig
+      };
+    } else {
+      // New pivot - add to array
+      const newPivot = {
+        id: Date.now().toString(),
+        name: trimmedName,
+        config: pivotConfig
+      };
+      updatedSavedPivots = [...existingSavedPivots, newPivot];
+    }
 
-    const updatedSavedPivots = [...(selectedReport.savedPivots || []), newPivot];
-
-    // Update local state
-    setSelectedReport(prev => prev ? { ...prev, savedPivots: updatedSavedPivots } : prev);
-    setReports(prev => prev.map(r => r.id === selectedReport.id ? { ...r, savedPivots: updatedSavedPivots } : r));
-
-    // Persist to backend
+    // SAVE TO BACKEND FIRST - before updating local state
     try {
       const currentCompanyObj = getCurrentCompany();
       if (!currentCompanyObj) {
         console.error('Company info not available for saving pivot view');
+        alert('Company information not available. Cannot save pivot view.');
         return;
       }
 
@@ -1450,21 +1709,51 @@ const CustomReports = () => {
           sortIndexes: selectedReport.sortIndexes || {},
           pivotConfig: pivotConfig,
           isPivotMode: true,
-          savedPivots: updatedSavedPivots
+          savedPivots: updatedSavedPivots  // Include updated savedPivots
         }
       };
 
+      console.log('💾 Saving pivot view to backend:', {
+        reportId: selectedReport.id,
+        pivotName: trimmedName,
+        savedPivotsCount: updatedSavedPivots.length
+      });
+
       const response = await apiPut(API_CONFIG.ENDPOINTS.CUSTOM_CARD_UPDATE(selectedReport.id), updatePayload);
+      
       if (!response || response.status !== 'success') {
-        throw new Error('Failed to save pivot view');
+        throw new Error(`Backend returned error: ${response?.message || 'Unknown error'}`);
       }
 
-      alert('Pivot view saved successfully!');
+      console.log('✅ Pivot view saved successfully to backend');
+
+      // ONLY update local state AFTER successful backend save
+      setSelectedReport(prev => prev ? { 
+        ...prev, 
+        savedPivots: updatedSavedPivots,
+        pivotConfig: pivotConfig,
+        isPivotMode: true
+      } : prev);
+      setReports(prev => prev.map(r => 
+        r.id === selectedReport.id 
+          ? { 
+              ...r, 
+              savedPivots: updatedSavedPivots,
+              pivotConfig: pivotConfig,
+              isPivotMode: true
+            }
+          : r
+      ));
+
+      alert(existingPivotIndex !== -1 
+        ? 'Pivot view updated successfully!' 
+        : 'Pivot view saved successfully!');
     } catch (error) {
-      console.error('Error saving pivot view:', error);
-      alert('Failed to save pivot view. Please try again.');
+      console.error('❌ Error saving pivot view to backend:', error);
+      alert(`Failed to save pivot view: ${error.message || 'Please try again.'}`);
+      // Don't update local state if backend save failed
     }
-  }, [selectedReport, isPivotMode, pivotConfig, pivotTableData, getCurrentCompany, setSelectedReport, setReports]);
+  }, [selectedReport, isPivotMode, pivotConfig, pivotTableData, getCurrentCompany]);
 
   // Delete a saved pivot view
   const handleDeletePivotView = useCallback(async (report, pivotId) => {
@@ -1529,7 +1818,8 @@ const CustomReports = () => {
   }, [getCurrentCompany, setReports, setSelectedReport]);
 
   // Handle cell drilldown - supports row-only, column-only, or both
-  const handleCellDrilldown = useCallback((rowKey = null, colKey = null, valueField = null) => {
+  // mergeContext: { firstLevelKey, allRowKeysInGroup } - used for merged cells
+  const handleCellDrilldown = useCallback((rowKey = null, colKey = null, valueField = null, mergeContext = null) => {
     if (!reportData || !reportData.rows || reportData.rows.length === 0) {
       alert('No data available for drilldown');
       return;
@@ -1553,7 +1843,32 @@ const CustomReports = () => {
     const filteredRecords = reportData.rows.filter(item => {
       // Check row field matches (if rowKey provided)
       let rowMatch = true;
-      if (rowValues && pivotConfig.rows.length > 0) {
+      
+      // If this is a merged cell (has mergeContext), match against all rowKeys in the group
+      if (mergeContext && mergeContext.allRowKeysInGroup && mergeContext.allRowKeysInGroup.length > 0) {
+        // For merged cells, check if item matches ANY of the rowKeys in the merged group
+        rowMatch = mergeContext.allRowKeysInGroup.some(mergedRowKey => {
+          const mergedRowValues = splitKey(mergedRowKey);
+          if (mergedRowValues.length === 0) return false;
+          
+          return pivotConfig.rows.every((rowField, idx) => {
+            const fieldValue = getFieldValue(item, rowField.field);
+            let compareValue = fieldValue == null ? '(blank)' : String(fieldValue);
+            
+            // Handle date grouping
+            const fieldType = getFieldType(rowField.field);
+            if (fieldType === 'date' && rowField.dateGrouping && rowField.dateGrouping !== 'day') {
+              const dateObj = parseDate(compareValue);
+              if (dateObj && !isNaN(dateObj.getTime())) {
+                compareValue = groupDate(dateObj, rowField.dateGrouping);
+              }
+            }
+            
+            return compareValue === mergedRowValues[idx];
+          });
+        });
+      } else if (rowValues && pivotConfig.rows.length > 0) {
+        // Regular single row match
         rowMatch = pivotConfig.rows.every((rowField, idx) => {
           const fieldValue = getFieldValue(item, rowField.field);
           let compareValue = fieldValue == null ? '(blank)' : String(fieldValue);
@@ -1847,10 +2162,11 @@ const CustomReports = () => {
     }
     
     // If pivotOverride is provided (clicking on a pivot badge), use that pivot config
-    // Otherwise, check if report has saved pivot mode and restore it
-    const effectivePivotConfig = pivotOverride?.config || (report.isPivotMode && report.pivotConfig ? report.pivotConfig : null);
-    const effectiveIsPivotMode = pivotOverride ? true : (report.isPivotMode && report.pivotConfig ? true : false);
-    const effectiveShowFieldsPanel = pivotOverride ? true : (report.isPivotMode && report.pivotConfig ? true : false);
+    // When clicking the main report card (not a pivot badge), always show raw table
+    // Only restore pivot mode when explicitly clicking on a pivot badge
+    const effectivePivotConfig = pivotOverride?.config || null;
+    const effectiveIsPivotMode = pivotOverride ? true : false;
+    const effectiveShowFieldsPanel = pivotOverride ? true : false;
 
     setSelectedReport({
       ...report,
@@ -1888,13 +2204,14 @@ const CustomReports = () => {
       }
     }
     
-    // Restore pivot table state if opening a specific pivot view OR if report has saved pivot mode
+    // Restore pivot table state ONLY if opening a specific pivot view (pivot badge clicked)
+    // When opening the main report card, always show table view (not pivot)
     if (effectivePivotConfig && effectiveIsPivotMode) {
       setPivotConfig(effectivePivotConfig);
       setIsPivotMode(effectiveIsPivotMode);
       setShowPivotFieldsPanel(effectiveShowFieldsPanel);
     } else {
-      // Reset to defaults only if no pivot mode is saved
+      // Reset to table view when opening main report card
       setPivotConfig({ filters: [], rows: [], columns: [], values: [] });
       setIsPivotMode(false);
       setShowPivotFieldsPanel(false);
@@ -1940,15 +2257,23 @@ const CustomReports = () => {
       const fieldName = pathParts[0].toLowerCase();
       
       // IMPORTANT:
-      // We ONLY expand for inventory-entry arrays.
-      // The sales data here is already flattened to "one row per inventory entry"
-      // when loaded. Expanding voucher-level arrays like ledgerentries or
-      // billallocations would create a Cartesian product (items × ledgerentries ×
-      // billallocations, etc.) and cause repeated rows in custom reports.
-      // To avoid that, we restrict expansion to ONLY inventory-entry arrays.
-      const expandableInventoryArrays = ['allinventoryentries', 'inventoryentries'];
+      // We NEVER expand arrays because the sales data is already flattened to
+      // "one row per inventory entry" when loaded. Expanding ANY arrays would
+      // create duplicates:
+      // - Expanding allinventoryentries/inventoryentries would duplicate items
+      // - Expanding ledgerentries/billallocations would create Cartesian products
+      // - Expanding nested arrays like batchallocation would duplicate rows
+      //
+      // All nested array fields are handled in getFieldValue by:
+      // - Mapping allinventoryentries.* to item-level fields (already flattened)
+      // - Aggregating nested arrays (batchallocation, accalloc, etc.) by summing or taking first
+      // - Accessing voucher-level arrays (ledgerentries, billallocations) via voucher lookup
+      //
+      // Therefore, we disable ALL expansion to prevent duplicate rows.
+      const expandableInventoryArrays = []; // Empty - data already flattened, no expansion needed
       
-      if (expandableInventoryArrays.includes(fieldName)) {
+      // Never expand - all nested fields are handled in getFieldValue
+      if (false) { // Explicitly disabled
         needsExpansion = true;
         arrayFieldName = fieldName;
       }
@@ -2137,8 +2462,8 @@ const CustomReports = () => {
     });
     
     // Apply global search
-    if (reportSearch.trim()) {
-      const query = reportSearch.toLowerCase();
+    if (tableSearch.trim()) {
+      const query = tableSearch.toLowerCase();
       filtered = filtered.filter(row =>
         reportData.columns.some(column =>
           String(row[column.key] ?? '').toLowerCase().includes(query)
@@ -2190,7 +2515,7 @@ const CustomReports = () => {
     }
     
     return filtered;
-  }, [reportData, columnFilters, reportSearch, reportSortBy, reportSortOrder, showReportModal, hideDuplicates]);
+  }, [reportData, columnFilters, tableSearch, reportSortBy, reportSortOrder, showReportModal, hideDuplicates]);
 
   // Pagination
   const totalRows = filteredReportRows.length;
@@ -3937,9 +4262,9 @@ const CustomReports = () => {
                 }}>
                   <input
                     type="text"
-                    value={reportSearch}
+                    value={tableSearch}
                     onChange={(e) => {
-                      setReportSearch(e.target.value);
+                      setTableSearch(e.target.value);
                       setReportPage(1);
                     }}
                     placeholder="Search across all columns..."
@@ -3973,10 +4298,10 @@ const CustomReports = () => {
                     pointerEvents: 'none',
                     fontSize: '20px'
                   }}>search</span>
-                  {reportSearch && (
+                  {tableSearch && (
                     <button
                       onClick={() => {
-                        setReportSearch('');
+                        setTableSearch('');
                         setReportPage(1);
                       }}
                       style={{
@@ -4262,6 +4587,9 @@ const CustomReports = () => {
                       setPivotConfig={setPivotConfig}
                       getFieldLabel={getFieldLabel}
                       onCellDrilldown={handleCellDrilldown}
+                      reportData={reportData}
+                      getFieldValue={getFieldValue}
+                      getFieldType={getFieldType}
                     />
                   </>
                 )
@@ -4375,7 +4703,7 @@ const CustomReports = () => {
                               fontSize: '48px', 
                               color: '#cbd5e1' 
                             }}>
-                              {reportSearch ? 'search_off' : 'inbox'}
+                              {tableSearch ? 'search_off' : 'inbox'}
                             </span>
                             <div>
                               <p style={{ 
@@ -4384,9 +4712,9 @@ const CustomReports = () => {
                                 color: '#475569',
                                 margin: '0 0 4px 0'
                               }}>
-                                {reportSearch ? 'No matching results' : 'No data available'}
+                                {tableSearch ? 'No matching results' : 'No data available'}
                               </p>
-                              {reportSearch && (
+                              {tableSearch && (
                                 <p style={{ 
                                   fontSize: '14px', 
                                   color: '#94a3b8',
@@ -4775,6 +5103,9 @@ const CustomReports = () => {
                   getFieldLabel={getFieldLabel}
                   isFullScreen={true}
                   onCellDrilldown={handleCellDrilldown}
+                  reportData={reportData}
+                  getFieldValue={getFieldValue}
+                  getFieldType={getFieldType}
                 />
               )}
             </div>
@@ -7567,17 +7898,17 @@ const DrilldownView = ({
   const paginatedData = drilldownData.slice(startIndex, endIndex);
 
   const allFields = useMemo(() => {
-    if (!drilldownData || drilldownData.length === 0) return [];
+      if (!drilldownData || drilldownData.length === 0) return [];
 
     // Collect all field keys from the drilldown records (raw underlying rows)
-    const fieldSet = new Set();
-    drilldownData.forEach(item => {
+      const fieldSet = new Set();
+      drilldownData.forEach(item => {
       Object.keys(item).forEach(key => {
         // Skip internal/meta fields
         if (key.startsWith('__')) return;
         fieldSet.add(key);
       });
-    });
+      });
 
     const allKeys = Array.from(fieldSet);
 
@@ -7845,7 +8176,7 @@ const DrilldownView = ({
   );
 };
 
-const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLabel, isFullScreen = false, onCellDrilldown }) => {
+function PivotTableRenderer({ pivotData, pivotConfig, setPivotConfig, getFieldLabel, isFullScreen = false, onCellDrilldown, reportData, getFieldValue, getFieldType }) {
   // Pagination state for columns
   const [currentColumnPage, setCurrentColumnPage] = useState(0);
   const COLUMNS_PER_PAGE = 20; // Number of columns to show per page
@@ -8346,6 +8677,19 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLa
     }
   }, [pivotData]);
 
+  // Get unique values for a filter field (must be before early return)
+  const getFilterValues = useCallback((field) => {
+    if (!reportData || !reportData.rows || reportData.rows.length === 0) return [];
+    const values = new Set();
+    reportData.rows.forEach(row => {
+      const val = getFieldValue ? getFieldValue(row, field) : row[field];
+      if (val != null && val !== '') {
+        values.add(String(val));
+      }
+    });
+    return Array.from(values).sort();
+  }, [reportData, getFieldValue]);
+
   if (!pivotData) {
     return (
       <div style={{
@@ -8579,6 +8923,316 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLa
     )
   );
 
+  // Filter UI Component (Excel-like with dropdown buttons)
+  const FilterSection = () => {
+    const [openFilterIndex, setOpenFilterIndex] = useState(null);
+    const [filterSearchTerms, setFilterSearchTerms] = useState({});
+    const filterDropdownRef = useRef(null);
+
+    // Close dropdown when clicking outside
+    useEffect(() => {
+      const handleClickOutside = (event) => {
+        if (filterDropdownRef.current && !filterDropdownRef.current.contains(event.target)) {
+          setOpenFilterIndex(null);
+          // Clear search when closing
+          setFilterSearchTerms({});
+        }
+      };
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    if (!pivotConfig.filters || pivotConfig.filters.length === 0) return null;
+
+    return (
+      <div style={{
+        padding: '12px 16px',
+        background: '#f8fafc',
+        border: '1px solid #e2e8f0',
+        borderTop: totalColumns > COLUMNS_PER_PAGE ? 'none' : '1px solid #e2e8f0',
+        borderBottom: '1px solid #e2e8f0',
+        display: 'flex',
+        flexWrap: 'wrap',
+        gap: '12px',
+        alignItems: 'center'
+      }}>
+        <div style={{
+          fontSize: '13px',
+          fontWeight: '600',
+          color: '#475569',
+          marginRight: '8px'
+        }}>
+          Filters:
+        </div>
+        {pivotConfig.filters.map((filter, index) => {
+          const availableValues = getFilterValues(filter.field);
+          const filterLabel = getFieldLabel ? getFieldLabel(filter.field) : filter.label || filter.field;
+          const selectedCount = filter.values ? filter.values.length : 0;
+          const isOpen = openFilterIndex === index;
+          const searchTerm = filterSearchTerms[index] || '';
+          
+          // Filter values based on search term
+          const filteredValues = searchTerm.trim()
+            ? availableValues.filter(value => 
+                String(value).toLowerCase().includes(searchTerm.toLowerCase())
+              )
+            : availableValues;
+          
+          return (
+            <div key={index} ref={index === openFilterIndex ? filterDropdownRef : null} style={{ position: 'relative' }}>
+              <button
+                onClick={() => {
+                  setOpenFilterIndex(isOpen ? null : index);
+                  if (!isOpen) {
+                    // Clear search when opening
+                    setFilterSearchTerms(prev => ({ ...prev, [index]: '' }));
+                  }
+                }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '6px 12px',
+                  background: selectedCount > 0 ? '#dbeafe' : 'white',
+                  border: selectedCount > 0 ? '1px solid #3b82f6' : '1px solid #cbd5e1',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontSize: '12px',
+                  fontWeight: '500',
+                  color: '#475569',
+                  minWidth: '180px',
+                  justifyContent: 'space-between',
+                  transition: 'all 0.2s ease'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = selectedCount > 0 ? '#bfdbfe' : '#f8fafc';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = selectedCount > 0 ? '#dbeafe' : 'white';
+                }}
+              >
+                <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span className="material-icons" style={{ fontSize: '16px', color: '#3b82f6' }}>filter_list</span>
+                  <span>{filterLabel}</span>
+                  {selectedCount > 0 && (
+                    <span style={{
+                      background: '#3b82f6',
+                      color: 'white',
+                      borderRadius: '10px',
+                      padding: '2px 6px',
+                      fontSize: '10px',
+                      fontWeight: '600'
+                    }}>
+                      {selectedCount}
+                    </span>
+                  )}
+                </span>
+                <span className="material-icons" style={{ 
+                  fontSize: '18px', 
+                  color: '#64748b',
+                  transform: isOpen ? 'rotate(180deg)' : 'none',
+                  transition: 'transform 0.2s ease'
+                }}>
+                  arrow_drop_down
+                </span>
+              </button>
+              
+              {isOpen && (
+                <div style={{
+                  position: 'absolute',
+                  top: '100%',
+                  left: 0,
+                  marginTop: '4px',
+                  background: 'white',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: '6px',
+                  boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+                  zIndex: 1000,
+                  minWidth: '250px',
+                  maxWidth: '400px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  maxHeight: '400px'
+                }}>
+                  <div style={{
+                    padding: '8px 12px',
+                    borderBottom: '1px solid #e5e7eb',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    background: '#f9fafb'
+                  }}>
+                    <span style={{ fontSize: '12px', fontWeight: '600', color: '#475569' }}>
+                      Select {filterLabel}
+                    </span>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const updatedConfig = { ...pivotConfig };
+                          updatedConfig.filters[index] = {
+                            ...filter,
+                            values: filteredValues
+                          };
+                          setPivotConfig(updatedConfig);
+                        }}
+                        style={{
+                          padding: '4px 8px',
+                          background: 'transparent',
+                          border: '1px solid #cbd5e1',
+                          borderRadius: '4px',
+                          cursor: 'pointer',
+                          fontSize: '11px',
+                          color: '#475569'
+                        }}
+                      >
+                        Select All
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const updatedConfig = { ...pivotConfig };
+                          updatedConfig.filters[index] = {
+                            ...filter,
+                            values: []
+                          };
+                          setPivotConfig(updatedConfig);
+                        }}
+                        style={{
+                          padding: '4px 8px',
+                          background: 'transparent',
+                          border: '1px solid #cbd5e1',
+                          borderRadius: '4px',
+                          cursor: 'pointer',
+                          fontSize: '11px',
+                          color: '#475569'
+                        }}
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  </div>
+                  
+                  {/* Search Input */}
+                  <div style={{ padding: '8px 12px', borderBottom: '1px solid #e5e7eb' }}>
+                    <input
+                      type="text"
+                      placeholder="Search values..."
+                      value={searchTerm}
+                      onChange={(e) => {
+                        setFilterSearchTerms(prev => ({ ...prev, [index]: e.target.value }));
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                      style={{
+                        width: '100%',
+                        padding: '8px 12px',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '6px',
+                        fontSize: '13px',
+                        outline: 'none',
+                        transition: 'all 0.15s ease',
+                        background: '#ffffff',
+                        color: '#1e293b',
+                        boxSizing: 'border-box'
+                      }}
+                      onFocus={(e) => {
+                        e.target.style.borderColor = '#3b82f6';
+                        e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+                      }}
+                      onBlur={(e) => {
+                        e.target.style.borderColor = '#e2e8f0';
+                        e.target.style.boxShadow = 'none';
+                      }}
+                    />
+                    {searchTerm && (
+                      <div style={{
+                        fontSize: '11px',
+                        color: '#64748b',
+                        marginTop: '4px'
+                      }}>
+                        Showing {filteredValues.length} of {availableValues.length} values
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div style={{ 
+                    padding: '4px', 
+                    maxHeight: '240px', 
+                    overflowY: 'auto',
+                    flex: 1
+                  }}>
+                    {filteredValues.length === 0 ? (
+                      <div style={{
+                        padding: '20px',
+                        textAlign: 'center',
+                        color: '#94a3b8',
+                        fontSize: '12px'
+                      }}>
+                        No values found
+                      </div>
+                    ) : (
+                      filteredValues.map(value => {
+                        const isSelected = filter.values && filter.values.includes(value);
+                        return (
+                          <label
+                            key={value}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '8px',
+                              padding: '6px 12px',
+                              cursor: 'pointer',
+                              fontSize: '12px',
+                              color: '#1e293b',
+                              transition: 'background 0.1s ease'
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.background = '#f1f5f9';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.background = 'transparent';
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={(e) => {
+                                const updatedConfig = { ...pivotConfig };
+                                const currentValues = filter.values || [];
+                                if (e.target.checked) {
+                                  updatedConfig.filters[index] = {
+                                    ...filter,
+                                    values: [...currentValues, value]
+                                  };
+                                } else {
+                                  updatedConfig.filters[index] = {
+                                    ...filter,
+                                    values: currentValues.filter(v => v !== value)
+                                  };
+                                }
+                                setPivotConfig(updatedConfig);
+                              }}
+                              style={{
+                                width: '16px',
+                                height: '16px',
+                                cursor: 'pointer'
+                              }}
+                            />
+                            <span style={{ flex: 1 }}>{value}</span>
+                          </label>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
   return (
     <div style={{
       width: '100%',
@@ -8588,6 +9242,9 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLa
     }}>
       {/* Pagination Controls - Top */}
       <ColumnPaginationControls position="top" />
+      
+      {/* Filter Section */}
+      <FilterSection />
       
       <div style={{
         overflowX: 'auto',
@@ -9402,30 +10059,79 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLa
               groupedRows.get(firstLevelKey).push({ rowKey, rowValues });
             });
 
-            // Build rows with rowspan for parent cells
+            // Build rows with rowspan for all row field levels
             const rows = [];
             let globalRowIdx = 0;
             
             groupedRows.forEach((subRows, firstLevelKey) => {
               const groupRowCount = subRows.length + (pivotConfig.rows.length > 1 && subRows.length > 1 ? 1 : 0);
-              let isFirstRowInGroup = true;
+              const hasSubtotal = pivotConfig.rows.length > 1 && subRows.length > 1;
               
-              // Add detail rows
+              // Calculate rowspan for each row field level
+              // For each level, determine which rows should have merged cells
+              const rowspanInfo = [];
+              for (let level = 0; level < pivotConfig.rows.length; level++) {
+                const levelRowspans = [];
+                let currentValue = null;
+                let spanStart = -1;
+                let spanCount = 0;
+                
+                subRows.forEach(({ rowValues }, idx) => {
+                  const valueAtLevel = rowValues[level] || '(blank)';
+                  
+                  if (valueAtLevel !== currentValue) {
+                    // End previous span if exists
+                    if (spanStart >= 0) {
+                      levelRowspans[spanStart] = spanCount;
+                    }
+                    // Start new span
+                    currentValue = valueAtLevel;
+                    spanStart = idx;
+                    spanCount = 1;
+                  } else {
+                    // Continue current span
+                    spanCount++;
+                  }
+                  
+                  // If this is the last row, finalize the span
+                  if (idx === subRows.length - 1 && spanStart >= 0) {
+                    levelRowspans[spanStart] = spanCount;
+                  }
+                });
+                
+                rowspanInfo.push(levelRowspans);
+              }
+              
+              // Add detail rows with rowspan information
               subRows.forEach(({ rowKey, rowValues }, idx) => {
+                const rowspanForLevels = rowspanInfo.map((levelRowspans, level) => {
+                  const rowspan = levelRowspans[idx];
+                  
+                  // Determine if this cell should render
+                  // If rowspan is defined, this row starts a merge or is standalone -> render
+                  // If undefined, we're in the middle of a merge from a previous row -> don't render
+                  const shouldRender = rowspan !== undefined;
+                  
+                  return {
+                    rowspan: rowspan || 1,
+                    shouldRender
+                  };
+                });
+                
                 rows.push({
                   type: 'detail',
                   rowKey,
                   rowValues,
                   firstLevelKey,
-                  isFirstRowInGroup,
                   groupRowCount,
-                  rowIdx: globalRowIdx++
+                  rowIdx: globalRowIdx++,
+                  rowspanForLevels,
+                  rowIndexInGroup: idx
                 });
-                isFirstRowInGroup = false;
               });
               
               // Add subtotal row after detail rows (if multiple row fields and multiple items)
-              if (pivotConfig.rows.length > 1 && subRows.length > 1) {
+              if (hasSubtotal) {
                 rows.push({
                   type: 'subtotal',
                   key: `subtotal-${firstLevelKey}`,
@@ -9472,11 +10178,10 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLa
                       e.currentTarget.style.background = '#fef3c7';
                     }}
                   >
-                    {/* First level label - subtotal row doesn't need rowspan as parent is already shown in first detail row */}
-                    {/* Empty cells for nested levels */}
-                    {pivotConfig.rows.slice(1).map((_, idx) => {
+                    {/* Empty cells for all row fields in subtotal row */}
+                    {pivotConfig.rows.map((_, idx) => {
                       // Calculate left offset for sticky positioning
-                      const leftOffset = pivotConfig.rows.slice(0, idx + 1).reduce((sum, _, prevIdx) => {
+                      const leftOffset = pivotConfig.rows.slice(0, idx).reduce((sum, _, prevIdx) => {
                         return sum + getColumnWidth('row', null, null, prevIdx);
                       }, 0);
                       return (
@@ -9488,7 +10193,7 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLa
                             background: '#fef3c7',
                             position: 'sticky',
                             left: `${leftOffset}px`,
-                            zIndex: 11 + idx + 1
+                            zIndex: 11 + idx
                           }}
                         />
                       );
@@ -9541,7 +10246,7 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLa
                 );
               } else {
                 // Detail row
-                const { rowKey, rowValues, isFirstRowInGroup, groupRowCount } = row;
+                const { rowKey, rowValues, groupRowCount, firstLevelKey, rowspanForLevels, rowIndexInGroup } = row;
                 return (
                   <tr
                     key={rowKey}
@@ -9555,74 +10260,77 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLa
                       e.currentTarget.style.background = row.rowIdx % 2 === 0 ? 'white' : '#fafafa';
                     }}
                   >
-                    {/* Render row labels based on number of row fields */}
+                    {/* Render row labels with merging for all levels */}
                     {pivotConfig.rows.length > 1 ? (
                       <>
-                        {/* Multiple row fields - use hierarchical grouping with rowspan */}
-                        {isFirstRowInGroup && (
-                          <td
-                            rowSpan={groupRowCount}
-                            onClick={() => {
-                              if (onCellDrilldown) {
-                                onCellDrilldown(rowKey, null, null);
-                              }
-                            }}
-                            style={{
-                              padding: '6px 8px',
-                              border: '1px solid #d1d5db',
-                              fontWeight: '600',
-                              background: '#fafafa',
-                              verticalAlign: 'top',
-                              position: 'sticky',
-                              left: '0px',
-                              zIndex: 11,
-                              width: `${getColumnWidth('row', null, null, 0)}px`,
-                              minWidth: `${getColumnWidth('row', null, null, 0)}px`,
-                              maxWidth: `${getColumnWidth('row', null, null, 0)}px`,
-                              cursor: onCellDrilldown ? 'pointer' : 'default',
-                              transition: onCellDrilldown ? 'background-color 0.2s' : 'none'
-                            }}
-                            onMouseEnter={(e) => {
-                              if (onCellDrilldown) {
-                                e.currentTarget.style.backgroundColor = '#e0f2fe';
-                                e.currentTarget.style.textDecoration = 'underline';
-                              }
-                            }}
-                            onMouseLeave={(e) => {
-                              if (onCellDrilldown) {
-                                e.currentTarget.style.backgroundColor = '#fafafa';
-                                e.currentTarget.style.textDecoration = 'none';
-                              }
-                            }}
-                            title={onCellDrilldown ? 'Click to drill down into records' : ''}
-                          >
-                            {rowValues[0]}
-                          </td>
-                        )}
-                        {/* Child row labels */}
-                        {rowValues.slice(1).map((val, idx) => {
-                          const rowWidth = getColumnWidth('row', null, null, idx + 1);
-                          // Calculate left offset for sticky positioning
-                          const leftOffset = pivotConfig.rows.slice(0, idx + 1).reduce((sum, _, prevIdx) => {
+                        {/* Render each row field level with rowspan if applicable */}
+                        {pivotConfig.rows.map((rowField, level) => {
+                          const rowspanInfo = rowspanForLevels[level];
+                          const shouldRender = rowspanInfo?.shouldRender !== false;
+                          const rowspan = rowspanInfo?.rowspan || 1;
+                          const rowWidth = getColumnWidth('row', null, null, level);
+                          const leftOffset = pivotConfig.rows.slice(0, level).reduce((sum, _, prevIdx) => {
                             return sum + getColumnWidth('row', null, null, prevIdx);
                           }, 0);
+                          
+                          // Skip rendering if this cell is merged and we're not the first row
+                          if (!shouldRender) {
+                            return null;
+                          }
+                          
+                          // Get all rowKeys that share the same value at this level (for drilldown)
+                          const getMergedRowKeys = () => {
+                            if (rowspan <= 1) return null;
+                            
+                            // Find all rows in the same group that have the same value at this level
+                            const currentValue = rowValues[level] || '(blank)';
+                            const allRowKeysInGroup = pivotData.rowKeys.filter(rk => {
+                              const parts = splitKey(rk);
+                              // Check if it matches all parent levels and this level
+                              let matches = true;
+                              for (let i = 0; i <= level; i++) {
+                                const partValue = parts[i] || '(blank)';
+                                const rowValue = i < level ? rowValues[i] || '(blank)' : currentValue;
+                                if (partValue !== rowValue) {
+                                  matches = false;
+                                  break;
+                                }
+                              }
+                              return matches;
+                            });
+                            
+                            return allRowKeysInGroup.length > 1 ? { 
+                              level, 
+                              levelValue: currentValue, 
+                              allRowKeysInGroup 
+                            } : null;
+                          };
+                          
+                          const mergeContext = getMergedRowKeys();
+                          
                           return (
                             <td
-                              key={`row-label-${idx + 1}`}
+                              key={`row-label-${level}`}
+                              rowSpan={rowspan > 1 ? rowspan : undefined}
                               onClick={() => {
                                 if (onCellDrilldown) {
-                                  onCellDrilldown(rowKey, null, null);
+                                  if (mergeContext) {
+                                    onCellDrilldown(rowKey, null, null, mergeContext);
+                                  } else {
+                                    onCellDrilldown(rowKey, null, null);
+                                  }
                                 }
                               }}
                               style={{
                                 padding: '6px 8px',
                                 border: '1px solid #d1d5db',
-                                fontWeight: '400',
-                                background: 'white',
-                                paddingLeft: `${20 + idx * 20}px`,
+                                fontWeight: level === 0 ? '600' : '400',
+                                background: level === 0 ? '#fafafa' : 'white',
+                                verticalAlign: rowspan > 1 ? 'top' : 'middle',
+                                paddingLeft: level > 0 ? `${20 + (level - 1) * 20}px` : '6px',
                                 position: 'sticky',
                                 left: `${leftOffset}px`,
-                                zIndex: 11 + idx + 1,
+                                zIndex: 11 + level,
                                 width: `${rowWidth}px`,
                                 minWidth: `${rowWidth}px`,
                                 maxWidth: `${rowWidth}px`,
@@ -9637,14 +10345,14 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLa
                               }}
                               onMouseLeave={(e) => {
                                 if (onCellDrilldown) {
-                                  e.currentTarget.style.backgroundColor = 'white';
+                                  e.currentTarget.style.backgroundColor = level === 0 ? '#fafafa' : 'white';
                                   e.currentTarget.style.textDecoration = 'none';
                                 }
                               }}
                               title={onCellDrilldown ? 'Click to drill down into records' : ''}
                             >
-                              <span style={{ marginRight: '4px', color: '#94a3b8' }}>└</span>
-                              {val}
+                              {level > 0 && <span style={{ marginRight: '4px', color: '#94a3b8' }}>└</span>}
+                              {rowValues[level] || '(blank)'}
                             </td>
                           );
                         })}
@@ -9695,12 +10403,24 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLa
                         const cellValue = pivotData.data[rowKey]?.[colKey]?.[valueField.field];
                         const hasData = cellValue != null && cellValue !== 0 && cellValue !== '';
                         
+                        // If this row is part of a merged group (multiple row fields with multiple rows), include merge context
+                        // Check if there are multiple rows with the same firstLevelKey
+                        const mergeContext = pivotConfig.rows.length > 1 && groupRowCount > 1 ? (() => {
+                          const allRowKeysInGroup = pivotData.rowKeys.filter(rk => {
+                            const parts = splitKey(rk);
+                            return parts[0] === firstLevelKey;
+                          });
+                          // Only include merge context if there are actually multiple rows in the group
+                          return allRowKeysInGroup.length > 1 ? { firstLevelKey, allRowKeysInGroup } : null;
+                        })() : null;
+                        
                         return (
                           <td
                             key={`cell-${rowKey}-${colKey}-${vIdx}`}
                             onClick={() => {
                               if (onCellDrilldown && hasData) {
-                                onCellDrilldown(rowKey, colKey, valueField);
+                                // If part of merged group, pass merge context to show all merged rows' data for this column
+                                onCellDrilldown(rowKey, colKey, valueField, mergeContext);
                               }
                             }}
                             style={{
@@ -9841,7 +10561,7 @@ const PivotTableRenderer = ({ pivotData, pivotConfig, setPivotConfig, getFieldLa
 };
 
 // Pivot Fields Panel Component
-const PivotFieldsPanel = (props) => {
+function PivotFieldsPanel(props) {
   const {
     availableFields,
     pivotConfig,
@@ -10294,7 +11014,7 @@ const PivotFieldsPanel = (props) => {
 };
 
 // Field Configuration Modal Component
-const FieldConfigurationModal = ({ fieldConfig, pivotConfig, setPivotConfig, onClose, getFieldValue, salesData, getFieldType, parseDate, groupDate }) => {
+function FieldConfigurationModal({ fieldConfig, pivotConfig, setPivotConfig, onClose, getFieldValue, salesData, getFieldType, parseDate, groupDate }) {
   const [aggregation, setAggregation] = useState(fieldConfig?.field?.aggregation || 'sum');
   const [format, setFormat] = useState(fieldConfig?.field?.format || 'number');
   const [showSubtotals, setShowSubtotals] = useState(fieldConfig?.field?.showSubtotals !== false);
