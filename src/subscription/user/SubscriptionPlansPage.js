@@ -4,6 +4,7 @@ import { useSearchParams } from 'react-router-dom';
 import { getInternalSlabs, purchaseSubscription, getCurrentSubscription } from '../api/subscriptionApi';
 import PlanCard from '../components/PlanCard';
 import PaymentModal from '../components/PaymentModal';
+import { calculateTieredPricing } from '../../utils/subscriptionUtils';
 import './SubscriptionPlansPage.css';
 
 const SubscriptionPlansPage = ({ onPlanSelect, onContinue }) => {
@@ -21,6 +22,7 @@ const SubscriptionPlansPage = ({ onPlanSelect, onContinue }) => {
   const [bankDetails, setBankDetails] = useState(null);
   const [currentSubscriptionData, setCurrentSubscriptionData] = useState(null);
   const [validatedSubscriptionEndDate, setValidatedSubscriptionEndDate] = useState(null);
+  const [showBreakdownModal, setShowBreakdownModal] = useState(false);
 
   useEffect(() => {
     fetchPlans();
@@ -126,10 +128,9 @@ const SubscriptionPlansPage = ({ onPlanSelect, onContinue }) => {
           const selectedPlan = internalPlans.find(p => p.id === validatedPlanId);
           if (selectedPlan) {
             const userCount = validatedUserCount;
-            const pricePerUser = validatedBillingCycle === 'yearly' 
-              ? (selectedPlan.yearly_price || 0)
-              : (selectedPlan.monthly_price || 0);
-            const baseTotalAmount = userCount * pricePerUser;
+            // Calculate tiered pricing instead of flat per-user pricing
+            const tieredPricing = calculateTieredPricing(internalPlans, userCount, validatedBillingCycle);
+            const baseTotalAmount = tieredPricing?.totalAmount || 0;
             
             // Fetch wallet balance for renewal
             let walletBalance = 0;
@@ -494,6 +495,7 @@ const BillingDetailsScreen = ({
   const [walletBalance, setWalletBalance] = useState(0);
   const [currentSubscription, setCurrentSubscription] = useState(null);
   const [selectedBillingCycle, setSelectedBillingCycle] = useState(billingCycle);
+  const [showBreakdownModal, setShowBreakdownModal] = useState(false);
 
   // Get current plan from ID (in case plan changed)
   const currentInternalPlan = internalPlans.find(p => p.id === selectedInternalPlanId) || internalPlan;
@@ -690,30 +692,34 @@ const BillingDetailsScreen = ({
     // Can be positive (upgrade) or negative (downgrade)
     const additionalUsers = effectiveInternalUsers - currentUserCount;
     
-    // Calculate prorated amount:
-    // Current paid amount = current_users * current_plan_price * (remaining_days / current_billing_cycle_days)
-    // New amount = new_users * new_plan_price * (remaining_days / new_billing_cycle_days)
+    // Calculate prorated amount using tiered pricing:
+    // Current paid amount = tiered_price_for_current_users * (remaining_days / current_billing_cycle_days)
+    // New amount = tiered_price_for_new_users * (remaining_days / new_billing_cycle_days)
     // Prorated amount = new_amount - current_paid_amount
     
-    const currentPaidForRemainingDays = (remainingDays / totalDaysInCycle) * currentUserCount * currentPlanPricePerUser;
+    // Calculate tiered pricing for current users (currentBillingCycle already declared above)
+    const currentTieredPricing = calculateTieredPricing(internalPlans, currentUserCount, currentBillingCycle);
+    const currentPaidForRemainingDays = (remainingDays / totalDaysInCycle) * currentTieredPricing.totalAmount;
     
     // Calculate new amount based on billing cycle change:
     // - If switching from yearly to monthly: use full monthly amount (no proration)
     // - If switching from monthly to yearly: use full yearly amount (no proration)
     // - If staying in same cycle: prorate by remaining days
     let newAmountForRemainingDays;
+    const newTieredPricing = calculateTieredPricing(internalPlans, effectiveInternalUsers, effectiveBillingCycle);
+    
     if (currentBillingCycle === 'yearly' && effectiveBillingCycle === 'monthly') {
       // Switching from yearly to monthly: use full monthly amount
-      newAmountForRemainingDays = effectiveInternalUsers * internalPricePerUser;
+      newAmountForRemainingDays = newTieredPricing.totalAmount;
     } else if (currentBillingCycle === 'monthly' && effectiveBillingCycle === 'yearly') {
       // Switching from monthly to yearly: use full yearly amount
-      newAmountForRemainingDays = effectiveInternalUsers * internalPricePerUser;
+      newAmountForRemainingDays = newTieredPricing.totalAmount;
     } else if (effectiveBillingCycle === 'yearly') {
       // Staying yearly: prorate by remainingDays / 365
-      newAmountForRemainingDays = (remainingDays / newBillingCycleDays) * effectiveInternalUsers * internalPricePerUser;
+      newAmountForRemainingDays = (remainingDays / newBillingCycleDays) * newTieredPricing.totalAmount;
     } else {
       // Staying monthly: prorate by remainingDays / 30
-      newAmountForRemainingDays = (remainingDays / newBillingCycleDays) * effectiveInternalUsers * internalPricePerUser;
+      newAmountForRemainingDays = (remainingDays / newBillingCycleDays) * newTieredPricing.totalAmount;
     }
     
     const proratedAmount = newAmountForRemainingDays - currentPaidForRemainingDays;
@@ -728,8 +734,9 @@ const BillingDetailsScreen = ({
 
   const proratedInfo = calculateProratedAmount();
 
-  // Calculate prices: total users * price per user
-  const internalTotalPrice = effectiveInternalUsers * internalPricePerUser;
+  // Calculate tiered pricing: each user is charged based on the slab they fall into
+  const tieredPricing = calculateTieredPricing(internalPlans, effectiveInternalUsers, effectiveBillingCycle) || { totalAmount: 0, breakdown: [] };
+  const internalTotalPrice = tieredPricing.totalAmount || 0;
   
   // Calculate current paid amount (for remaining days) in upgrade/downgrade mode
   const calculateCurrentPaidAmount = () => {
@@ -741,9 +748,11 @@ const BillingDetailsScreen = ({
       return 0;
     }
     
-    // Current paid amount = current users * current plan price per user * (remaining days / total days)
-    // Use the price from the current subscription plan, not the selected plan
-    const currentPaidAmount = (proratedInfo.remainingDays / proratedInfo.totalDaysInCycle) * currentUserCount * currentPlanPricePerUser;
+    // Current paid amount = tiered price for current users * (remaining days / total days)
+    // Use tiered pricing for current users with current billing cycle
+    const currentBillingCycle = currentSubscription?.billing_cycle || billingCycle;
+    const currentTieredPricing = calculateTieredPricing(internalPlans, currentUserCount, currentBillingCycle);
+    const currentPaidAmount = (proratedInfo.remainingDays / proratedInfo.totalDaysInCycle) * currentTieredPricing.totalAmount;
     return Math.round(currentPaidAmount * 100) / 100;
   };
 
@@ -759,26 +768,27 @@ const BillingDetailsScreen = ({
       return internalTotalPrice;
     }
     
-    // Calculate new amount based on billing cycle change:
+    // Calculate new amount based on billing cycle change using tiered pricing:
     // - If switching from yearly to monthly: use full monthly amount (no proration)
     // - If switching from monthly to yearly: use full yearly amount (no proration)
     // - If staying in same cycle: prorate by remaining days
     const currentBillingCycle = currentSubscription?.billing_cycle || billingCycle;
+    const newTieredPricing = calculateTieredPricing(internalPlans, effectiveInternalUsers, effectiveBillingCycle);
     let newTotalAmount;
     if (currentBillingCycle === 'yearly' && effectiveBillingCycle === 'monthly') {
       // Switching from yearly to monthly: use full monthly amount
-      newTotalAmount = effectiveInternalUsers * internalPricePerUser;
+      newTotalAmount = newTieredPricing.totalAmount;
     } else if (currentBillingCycle === 'monthly' && effectiveBillingCycle === 'yearly') {
       // Switching from monthly to yearly: use full yearly amount
-      newTotalAmount = effectiveInternalUsers * internalPricePerUser;
+      newTotalAmount = newTieredPricing.totalAmount;
     } else if (effectiveBillingCycle === 'yearly') {
       // Staying yearly: prorate by remainingDays / 365
       const newBillingCycleDays = 365;
-      newTotalAmount = (proratedInfo.remainingDays / newBillingCycleDays) * effectiveInternalUsers * internalPricePerUser;
+      newTotalAmount = (proratedInfo.remainingDays / newBillingCycleDays) * newTieredPricing.totalAmount;
     } else {
       // Staying monthly: prorate by remainingDays / 30
       const newBillingCycleDays = 30;
-      newTotalAmount = (proratedInfo.remainingDays / newBillingCycleDays) * effectiveInternalUsers * internalPricePerUser;
+      newTotalAmount = (proratedInfo.remainingDays / newBillingCycleDays) * newTieredPricing.totalAmount;
     }
     return Math.round(newTotalAmount * 100) / 100;
   };
@@ -928,7 +938,13 @@ const BillingDetailsScreen = ({
                 </button>
               </div>
               <div className="counter-price">
-                ₹{internalPricePerUser.toLocaleString('en-IN')} per user per {effectiveBillingCycle === 'yearly' ? 'year' : 'month'}
+                {tieredPricing.breakdown && tieredPricing.breakdown.length > 0 && tieredPricing.breakdown.length === 1 && tieredPricing.breakdown[0]?.pricePerUser ? (
+                  // Single slab: show per-user price
+                  <>₹{tieredPricing.breakdown[0].pricePerUser.toLocaleString('en-IN')} per user per {effectiveBillingCycle === 'yearly' ? 'year' : 'month'}</>
+                ) : (
+                  // Multiple slabs: show tiered pricing
+                  <>Tiered pricing (based on user position)</>
+                )}
                 <br />
                 {!isTrialOrNoSubscription && effectiveIsIncreaseUsers && proratedInfo ? (
                   proratedInfo.additionalUsers > 0 ? (
@@ -947,7 +963,7 @@ const BillingDetailsScreen = ({
                     </>
                   )
                 ) : (
-                  <strong>Total: ₹{(effectiveInternalUsers * internalPricePerUser).toLocaleString('en-IN')}/{effectiveBillingCycle === 'yearly' ? 'year' : 'month'}</strong>
+                  <strong>Total: ₹{internalTotalPrice.toLocaleString('en-IN')}/{effectiveBillingCycle === 'yearly' ? 'year' : 'month'}</strong>
                 )}
                 {!isTrialOrNoSubscription && effectiveIsIncreaseUsers && currentUserCount && (
                   <div style={{ fontSize: '12px', color: '#666', marginTop: '8px', padding: '8px', backgroundColor: '#f0f9ff', borderRadius: '4px' }}>
@@ -1068,25 +1084,42 @@ const BillingDetailsScreen = ({
               <div className="order-item-price">
                 {!isTrialOrNoSubscription && effectiveIsIncreaseUsers && proratedInfo && proratedInfo.remainingDays > 0 ? (
                   <>
-                    ₹{newTotalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    <span 
+                      style={{ cursor: 'pointer', textDecoration: 'underline', color: '#2563eb' }}
+                      onClick={() => setShowBreakdownModal(true)}
+                      title="Click to view tiered pricing breakdown"
+                    >
+                      ₹{newTotalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
                     <div style={{ fontSize: '11px', color: '#666', marginTop: '2px' }}>
                       {(() => {
                         const currentBillingCycle = currentSubscription?.billing_cycle || billingCycle;
-                        // If switching from yearly to monthly, show full monthly amount (no days)
-                        if (currentBillingCycle === 'yearly' && effectiveBillingCycle === 'monthly') {
-                          return <>({effectiveInternalUsers} users × ₹{internalPricePerUser.toLocaleString('en-IN')})</>;
+                        // Show tiered pricing breakdown if available
+                        if (tieredPricing.breakdown && tieredPricing.breakdown.length > 0) {
+                          if (currentBillingCycle === 'yearly' && effectiveBillingCycle === 'monthly') {
+                            // Switching cycles: show full amount
+                            return <>(Tiered pricing for {effectiveInternalUsers} users - Click amount for breakdown)</>;
+                          } else if (currentBillingCycle === 'monthly' && effectiveBillingCycle === 'yearly') {
+                            // Switching cycles: show full amount
+                            return <>(Tiered pricing for {effectiveInternalUsers} users - Click amount for breakdown)</>;
+                          } else {
+                            // Prorated: show with days
+                            return <>(Tiered pricing for {effectiveInternalUsers} users × {proratedInfo.remainingDays}/{effectiveBillingCycle === 'yearly' ? 365 : 30} days - Click amount for breakdown)</>;
+                          }
                         }
-                        // If switching from monthly to yearly, show full yearly amount (no days)
-                        if (currentBillingCycle === 'monthly' && effectiveBillingCycle === 'yearly') {
-                          return <>({effectiveInternalUsers} users × ₹{internalPricePerUser.toLocaleString('en-IN')})</>;
-                        }
-                        // Otherwise show prorated calculation with days
-                        return <>({effectiveInternalUsers} users × ₹{internalPricePerUser.toLocaleString('en-IN')} × {proratedInfo.remainingDays}/{effectiveBillingCycle === 'yearly' ? 365 : 30} days)</>;
+                        // Fallback
+                        return <>({effectiveInternalUsers} users)</>;
                       })()}
                     </div>
                   </>
                 ) : (
-                  `₹${internalTotalPrice.toLocaleString('en-IN')} per ${effectiveBillingCycle === 'yearly' ? 'year' : 'month'}`
+                  <span 
+                    style={{ cursor: tieredPricing.breakdown && tieredPricing.breakdown.length > 0 ? 'pointer' : 'default', textDecoration: tieredPricing.breakdown && tieredPricing.breakdown.length > 0 ? 'underline' : 'none', color: tieredPricing.breakdown && tieredPricing.breakdown.length > 0 ? '#2563eb' : 'inherit' }}
+                    onClick={() => tieredPricing.breakdown && tieredPricing.breakdown.length > 0 && setShowBreakdownModal(true)}
+                    title={tieredPricing.breakdown && tieredPricing.breakdown.length > 0 ? "Click to view tiered pricing breakdown" : ""}
+                  >
+                    ₹{internalTotalPrice.toLocaleString('en-IN')} per {effectiveBillingCycle === 'yearly' ? 'year' : 'month'}
+                  </span>
                 )}
               </div>
             </div>
@@ -1096,7 +1129,7 @@ const BillingDetailsScreen = ({
                 <div>
                   <strong>Current Paid Amount</strong>
                   <div className="order-item-detail" style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
-                    ({currentUserCount} users × ₹{currentPlanPricePerUser.toLocaleString('en-IN')} × {proratedInfo.remainingDays}/{proratedInfo.totalDaysInCycle} days)
+                    (Tiered pricing for {currentUserCount} users × {proratedInfo.remainingDays}/{proratedInfo.totalDaysInCycle} days)
                   </div>
                 </div>
                 <div className="order-item-price" style={{ color: '#ef4444' }}>
@@ -1136,7 +1169,13 @@ const BillingDetailsScreen = ({
             <div className="order-total">
               <strong>Total Amount Payable</strong>
               <strong className="total-price">
-                ₹{totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                <span 
+                  style={{ cursor: tieredPricing.breakdown && tieredPricing.breakdown.length > 0 ? 'pointer' : 'default', textDecoration: tieredPricing.breakdown && tieredPricing.breakdown.length > 0 ? 'underline' : 'none', color: tieredPricing.breakdown && tieredPricing.breakdown.length > 0 ? '#2563eb' : 'inherit' }}
+                  onClick={() => tieredPricing.breakdown && tieredPricing.breakdown.length > 0 && setShowBreakdownModal(true)}
+                  title={tieredPricing.breakdown && tieredPricing.breakdown.length > 0 ? "Click to view tiered pricing breakdown" : ""}
+                >
+                  ₹{totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
                 {!isTrialOrNoSubscription && effectiveIsIncreaseUsers && proratedInfo ? (
                   proratedInfo.additionalUsers > 0 ? (
                     <div style={{ fontSize: '12px', fontWeight: 'normal', color: '#666', marginTop: '4px' }}>
@@ -1381,6 +1420,154 @@ const BillingDetailsScreen = ({
           </div>
         </div>
       </div>
+
+      {/* Tiered Pricing Breakdown Modal */}
+      {showBreakdownModal && tieredPricing.breakdown && tieredPricing.breakdown.length > 0 && (
+        <div 
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '20px'
+          }}
+          onClick={() => setShowBreakdownModal(false)}
+        >
+          <div 
+            style={{
+              backgroundColor: 'white',
+              borderRadius: '8px',
+              padding: '24px',
+              maxWidth: '600px',
+              width: '100%',
+              maxHeight: '90vh',
+              overflow: 'auto',
+              boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h2 style={{ margin: 0, fontSize: '24px', fontWeight: 'bold' }}>Tiered Pricing Breakdown</h2>
+              <button
+                onClick={() => setShowBreakdownModal(false)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  fontSize: '24px',
+                  cursor: 'pointer',
+                  color: '#666',
+                  padding: '0',
+                  width: '30px',
+                  height: '30px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+              >
+                ×
+              </button>
+            </div>
+
+            <div style={{ marginBottom: '16px', padding: '12px', backgroundColor: '#f3f4f6', borderRadius: '6px' }}>
+              <div style={{ fontSize: '14px', color: '#666', marginBottom: '4px' }}>Total Users: <strong>{effectiveInternalUsers}</strong></div>
+              <div style={{ fontSize: '14px', color: '#666', marginBottom: '4px' }}>Billing Cycle: <strong>{effectiveBillingCycle === 'yearly' ? 'Yearly' : 'Monthly'}</strong></div>
+              {!isTrialOrNoSubscription && effectiveIsIncreaseUsers && proratedInfo && proratedInfo.remainingDays > 0 && (
+                <div style={{ fontSize: '14px', color: '#666' }}>
+                  Prorated for: <strong>{proratedInfo.remainingDays} days</strong> (out of {effectiveBillingCycle === 'yearly' ? 365 : 30} days)
+                </div>
+              )}
+            </div>
+
+            <div style={{ marginBottom: '20px' }}>
+              <h3 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '12px' }}>Pricing by Slab:</h3>
+              <div style={{ border: '1px solid #e5e7eb', borderRadius: '6px', overflow: 'hidden' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ backgroundColor: '#f9fafb' }}>
+                      <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #e5e7eb', fontSize: '14px', fontWeight: '600' }}>Slab</th>
+                      <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #e5e7eb', fontSize: '14px', fontWeight: '600' }}>User Range</th>
+                      <th style={{ padding: '12px', textAlign: 'right', borderBottom: '1px solid #e5e7eb', fontSize: '14px', fontWeight: '600' }}>Users in Slab</th>
+                      <th style={{ padding: '12px', textAlign: 'right', borderBottom: '1px solid #e5e7eb', fontSize: '14px', fontWeight: '600' }}>Price/User</th>
+                      <th style={{ padding: '12px', textAlign: 'right', borderBottom: '1px solid #e5e7eb', fontSize: '14px', fontWeight: '600' }}>Subtotal</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tieredPricing.breakdown.map((item, index) => {
+                      const slab = item.slab;
+                      const userRange = slab.min_users === slab.max_users
+                        ? `${slab.min_users} user${slab.min_users > 1 ? 's' : ''}`
+                        : `${slab.min_users}-${slab.max_users} users`;
+                      
+                      // Show full amount in main column, prorated in note if applicable
+                      const fullAmount = item.total;
+                      let proratedAmount = null;
+                      let proratedNote = '';
+                      
+                      if (!isTrialOrNoSubscription && effectiveIsIncreaseUsers && proratedInfo && proratedInfo.remainingDays > 0) {
+                        const totalDaysInCycle = effectiveBillingCycle === 'yearly' ? 365 : 30;
+                        const proratedFactor = proratedInfo.remainingDays / totalDaysInCycle;
+                        proratedAmount = fullAmount * proratedFactor;
+                        proratedNote = `Prorated (${proratedInfo.remainingDays}/${totalDaysInCycle} days): ₹${proratedAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                      }
+                      
+                      return (
+                        <tr key={index} style={{ borderBottom: index < tieredPricing.breakdown.length - 1 ? '1px solid #e5e7eb' : 'none' }}>
+                          <td style={{ padding: '12px', fontSize: '14px' }}>{slab.name || `Slab ${slab.id}`}</td>
+                          <td style={{ padding: '12px', fontSize: '14px', color: '#666' }}>{userRange}</td>
+                          <td style={{ padding: '12px', textAlign: 'right', fontSize: '14px' }}>{item.users}</td>
+                          <td style={{ padding: '12px', textAlign: 'right', fontSize: '14px' }}>
+                            ₹{item.pricePerUser.toLocaleString('en-IN')} / {effectiveBillingCycle === 'yearly' ? 'year' : 'month'}
+                          </td>
+                          <td style={{ padding: '12px', textAlign: 'right', fontSize: '14px', fontWeight: '600' }}>
+                            <div>₹{fullAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                            {proratedNote && (
+                              <div style={{ fontSize: '11px', color: '#666', fontWeight: 'normal', marginTop: '4px' }}>
+                                {proratedNote}
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{ backgroundColor: '#f9fafb', borderTop: '2px solid #e5e7eb' }}>
+                      <td colSpan="4" style={{ padding: '12px', textAlign: 'right', fontSize: '16px', fontWeight: '600' }}>Total Amount:</td>
+                      <td style={{ padding: '12px', textAlign: 'right', fontSize: '18px', fontWeight: '700', color: '#2563eb' }}>
+                        ₹{(!isTrialOrNoSubscription && effectiveIsIncreaseUsers && proratedInfo && proratedInfo.remainingDays > 0 ? newTotalAmount : internalTotalPrice).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setShowBreakdownModal(false)}
+                style={{
+                  padding: '10px 20px',
+                  backgroundColor: '#2563eb',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  fontWeight: '600'
+                }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

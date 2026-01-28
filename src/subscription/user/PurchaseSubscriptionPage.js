@@ -1,6 +1,7 @@
 // Purchase Subscription Page - Complete subscription purchase with payment details
 import React, { useState, useEffect } from 'react';
 import { purchaseSubscription, getInternalSlabs } from '../api/subscriptionApi';
+import { calculateTieredPricing } from '../../utils/subscriptionUtils';
 import './PurchaseSubscriptionPage.css';
 
 const PurchaseSubscriptionPage = ({ selectedPlan, billingCycle, onSuccess, onCancel }) => {
@@ -75,13 +76,14 @@ const PurchaseSubscriptionPage = ({ selectedPlan, billingCycle, onSuccess, onCan
     setLoading(true);
 
     try {
-      // Calculate total amount and external free count
+      // Calculate total amount and external free count using tiered pricing
       const selectedPlanData = plans.find(p => p.id === formData.internal_slab_id) || selectedPlan;
-      const pricePerUser = formData.billing_cycle === 'yearly' 
-        ? (selectedPlanData?.yearly_price || 0)
-        : (selectedPlanData?.monthly_price || 0);
       const userCount = formData.user_count || selectedPlanData?.min_users || 1;
-      const totalAmount = userCount * pricePerUser;
+      
+      // Calculate tiered pricing instead of flat per-user pricing
+      const tieredPricing = calculateTieredPricing(plans, userCount, formData.billing_cycle);
+      const totalAmount = tieredPricing.totalAmount;
+      
       const externalFreeCount = userCount * (selectedPlanData?.free_external_users_per_internal_user || 10);
 
       // Prepare payload according to API structure
